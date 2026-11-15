@@ -169,6 +169,13 @@ function App() {
   const [savingName, setSavingName] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Three-dot menu on memory cards (stores the id of the open menu)
+  const [cardMenuId, setCardMenuId] = useState(null);
+  // Memory currently opened in the "View" popup
+  const [viewing, setViewing] = useState(null);
+  // Custom cover images for year folders: { "photos-2026": { path, url } }
+  const [folderCovers, setFolderCovers] = useState({});
+
   const [friends, setFriends] = useState([]);
   const [friendsOpen, setFriendsOpen] = useState(false);
 
@@ -246,6 +253,15 @@ function App() {
     }
   }, [activeSection]);
 
+  // Close the card menu when clicking anywhere outside it
+  useEffect(() => {
+    function handleOutside(e) {
+      if (!e.target.closest(".card-menu")) setCardMenuId(null);
+    }
+    document.addEventListener("click", handleOutside);
+    return () => document.removeEventListener("click", handleOutside);
+  }, []);
+
   async function loadFriends() {
     const { data, error } = await supabase
       .from("profiles")
@@ -293,12 +309,46 @@ function App() {
     );
   }
 
+  async function loadFolderCovers() {
+    const { data, error } = await supabase.from("folder_covers").select("*");
+
+    if (error) {
+      console.error("Folder covers error:", error);
+      return;
+    }
+
+    const rows = data || [];
+    const paths = rows.map((row) => row.cover_path);
+
+    const urlMap = {};
+    if (paths.length > 0) {
+      const { data: signed } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrls(paths, 3600);
+
+      (signed || []).forEach((item) => {
+        if (item.signedUrl) urlMap[item.path] = item.signedUrl;
+      });
+    }
+
+    const map = {};
+    rows.forEach((row) => {
+      map[`${row.section}-${row.year}`] = {
+        path: row.cover_path,
+        url: urlMap[row.cover_path] || null,
+      };
+    });
+
+    setFolderCovers(map);
+  }
+
   useEffect(() => {
     async function loadMemories() {
       if (!session) {
         setMemories([]);
         setFriends([]);
         setTrips([]);
+        setFolderCovers({});
         setOpenYear(null);
         setActiveSection(null);
         return;
@@ -306,6 +356,7 @@ function App() {
 
       loadFriends();
       loadTrips();
+      loadFolderCovers();
 
       const { data, error } = await supabase
         .from("memories")
@@ -545,6 +596,8 @@ function App() {
     setSelectedDate(null);
     setOpenYear(null);
     setActiveSection(null);
+    setCardMenuId(null);
+    setViewing(null);
     await supabase.auth.signOut();
   }
 
@@ -659,6 +712,92 @@ function App() {
     }
 
     setMemories(memories.filter((memory) => memory.id !== id));
+  }
+
+  // Three-dot menu: View
+  function handleViewMemory(memory) {
+    setCardMenuId(null);
+    setViewing(memory);
+  }
+
+  // Three-dot menu: Download
+  async function handleDownloadMemory(memory) {
+    setCardMenuId(null);
+
+    const path = getPath(memory.image_url);
+    if (!path) return;
+
+    const ext = path.split(".").pop();
+    const safeName =
+      (memory.title || "memory").replace(/[^\w\- ]+/g, "").trim() || "memory";
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(path, 60, { download: `${safeName}.${ext}` });
+
+    if (error || !data?.signedUrl) {
+      console.error("Download error:", error);
+      alert("Could not download this file. Check the console.");
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = data.signedUrl;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  // Admin: choose a separate cover image for a year folder
+  async function handleSetCover(year, coverFile) {
+    if (!coverFile) return;
+
+    if (!coverFile.type.startsWith("image/")) {
+      alert("Please pick an image file.");
+      return;
+    }
+
+    if (coverFile.size > 10 * 1024 * 1024) {
+      alert("Please pick a cover image smaller than 10 MB.");
+      return;
+    }
+
+    const section = activeSection;
+    const key = `${section}-${year}`;
+    const oldPath = folderCovers[key]?.path;
+
+    const ext = coverFile.name.split(".").pop();
+    const path = `covers/${crypto.randomUUID()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, coverFile);
+
+    if (uploadError) {
+      console.error("Cover upload error:", uploadError);
+      alert("Cover upload failed. Check the console.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("folder_covers")
+      .upsert(
+        { section, year, cover_path: path },
+        { onConflict: "section,year" },
+      );
+
+    if (error) {
+      console.error("Save cover error:", error);
+      alert("Could not save the cover. Check the console.");
+      return;
+    }
+
+    // Remove the old cover file so storage doesn't fill up
+    if (oldPath) {
+      await supabase.storage.from(BUCKET).remove([oldPath]);
+    }
+
+    loadFolderCovers();
   }
 
   // Quick add from the Events calendar
@@ -800,6 +939,7 @@ function App() {
       return;
     }
     setOpenYear(null);
+    setCardMenuId(null);
     setActiveSection(activeSection === name ? null : name);
   }
 
@@ -1712,39 +1852,52 @@ function App() {
                       const inYear = typeMemories.filter(
                         (m) => getYear(m) === year,
                       );
-                      const cover = inYear.find(
-                        (m) => m.signed_url,
-                      )?.signed_url;
+                      // Only a cover you chose is shown, never a memory photo
+                      const cover =
+                        folderCovers[`${activeSection}-${year}`]?.url;
 
                       return (
-                        <button
-                          className="folder-card"
-                          key={year}
-                          onClick={() => setOpenYear(year)}
-                        >
-                          <div className="folder-cover">
-                            {cover ? (
-                              isVideoSection ? (
-                                <video src={cover} muted preload="metadata" />
-                              ) : (
+                        <div className="folder-wrap" key={year}>
+                          <button
+                            className="folder-card"
+                            onClick={() => setOpenYear(year)}
+                          >
+                            <div className="folder-cover">
+                              {cover ? (
                                 <img src={cover} alt={`${year} cover`} />
-                              )
-                            ) : (
-                              <span>{isVideoSection ? "🎬" : "📁"}</span>
-                            )}
-                          </div>
-                          <h3>{year}</h3>
-                          <p>
-                            {inYear.length}{" "}
-                            {isVideoSection
-                              ? inYear.length === 1
-                                ? "video"
-                                : "videos"
-                              : inYear.length === 1
-                                ? "photo"
-                                : "photos"}
-                          </p>
-                        </button>
+                              ) : (
+                                <span>{isVideoSection ? "🎬" : "📁"}</span>
+                              )}
+                            </div>
+                            <h3>{year}</h3>
+                            <p>
+                              {inYear.length}{" "}
+                              {isVideoSection
+                                ? inYear.length === 1
+                                  ? "video"
+                                  : "videos"
+                                : inYear.length === 1
+                                  ? "photo"
+                                  : "photos"}
+                            </p>
+                          </button>
+
+                          {/* Admin only: pick a separate cover image */}
+                          {isDeveloper && (
+                            <label className="folder-cover-btn">
+                              🖼️ {cover ? "Change cover" : "Set cover"}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                hidden
+                                onChange={(e) => {
+                                  handleSetCover(year, e.target.files[0]);
+                                  e.target.value = "";
+                                }}
+                              />
+                            </label>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -1768,6 +1921,49 @@ function App() {
                 <div className="memory-grid">
                   {yearMemories.map((memory) => (
                     <div className="memory-card" key={memory.id}>
+                      {/* Three-dot menu */}
+                      <div className="card-menu">
+                        <button
+                          className="card-menu-btn"
+                          title="Options"
+                          onClick={() =>
+                            setCardMenuId(
+                              cardMenuId === memory.id ? null : memory.id,
+                            )
+                          }
+                        >
+                          ⋮
+                        </button>
+
+                        {cardMenuId === memory.id && (
+                          <div className="card-menu-dropdown">
+                            {memory.signed_url && (
+                              <button onClick={() => handleViewMemory(memory)}>
+                                👁️ View
+                              </button>
+                            )}
+                            {memory.signed_url && (
+                              <button
+                                onClick={() => handleDownloadMemory(memory)}
+                              >
+                                ⬇️ Download
+                              </button>
+                            )}
+                            {isDeveloper && (
+                              <button
+                                className="danger"
+                                onClick={() => {
+                                  setCardMenuId(null);
+                                  handleDeleteMemory(memory.id);
+                                }}
+                              >
+                                🗑️ Delete
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       {memory.signed_url &&
                         (isVideoSection ? (
                           <video
@@ -1785,12 +1981,6 @@ function App() {
                         ))}
                       <h3>{memory.title}</h3>
                       <p>{memory.description}</p>
-                      <button
-                        className="delete-btn"
-                        onClick={() => handleDeleteMemory(memory.id)}
-                      >
-                        🗑️ Delete
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -1802,7 +1992,7 @@ function App() {
         {/* Login prompt (logged out) / Add memory form (logged in) */}
         {!session ? (
           <div className="login-prompt">
-            <p>🔒 Our memories are private. Log in to open them.</p>
+            <p> Our memories are private. Log in to open them.</p>
             <button onClick={showLogin}>Login</button>
           </div>
         ) : (
@@ -2000,6 +2190,26 @@ function App() {
             </>
           )}
         </section>
+      )}
+
+      {/* View popup for a photo or video */}
+      {viewing && (
+        <div className="viewer-backdrop" onClick={() => setViewing(null)}>
+          <div className="viewer-box" onClick={(e) => e.stopPropagation()}>
+            <button className="viewer-close" onClick={() => setViewing(null)}>
+              ✕
+            </button>
+
+            {getType(viewing) === "video" ? (
+              <video src={viewing.signed_url} controls autoPlay />
+            ) : (
+              <img src={viewing.signed_url} alt={viewing.title} />
+            )}
+
+            <h3>{viewing.title}</h3>
+            {viewing.description && <p>{viewing.description}</p>}
+          </div>
+        </div>
       )}
 
       <footer>Made with ❤️ by our gang.</footer>

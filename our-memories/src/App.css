@@ -3514,3 +3514,164 @@ footer {
     padding: 22px;
   }
 }
+/* ----- Three-dot card menu ----- */
+.memory-card {
+  position: relative;
+}
+
+.card-menu {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+}
+
+.card-menu-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  transition:
+    background 0.2s,
+    transform 0.2s;
+}
+
+.card-menu-btn:hover {
+  background: rgba(255, 138, 80, 0.85);
+  transform: scale(1.08);
+}
+
+.card-menu-dropdown {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  min-width: 150px;
+  background: #1c1c1c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: cardMenuIn 0.15s ease-out;
+}
+
+.card-menu-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #eee;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.card-menu-dropdown button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.card-menu-dropdown button.danger {
+  color: #ff6b6b;
+}
+
+.card-menu-dropdown button.danger:hover {
+  background: rgba(255, 107, 107, 0.15);
+}
+
+@keyframes cardMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ----- View popup ----- */
+.viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.viewer-box {
+  position: relative;
+  max-width: 900px;
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  background: #1a1a1a;
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+  color: #fff;
+}
+
+.viewer-box img,
+.viewer-box video {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 12px;
+}
+
+.viewer-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.viewer-close:hover {
+  background: rgba(255, 138, 80, 0.9);
+}
+/* ----- Folder cover button ----- */
+.folder-wrap {
+  position: relative;
+}
+
+.folder-wrap .folder-card {
+  width: 100%;
+}
+
+.folder-cover-btn {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(255, 138, 80, 0.15);
+  border: 1px dashed rgba(255, 138, 80, 0.6);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.folder-cover-btn:hover {
+  background: rgba(255, 138, 80, 0.3);
+}
