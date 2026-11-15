@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./utils/supabase";
 import "./App.css";
+import "leaflet/dist/leaflet.css";
+import DestinationMap from "./DestinationMap";
 
 const BUCKET = "memory-photos";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -28,6 +30,10 @@ const STATUS_LABELS = {
 };
 
 const STATUS_FILTERS = ["all", "planning", "confirmed", "ongoing", "completed"];
+
+// Stable empty values (a new [] every render would look like a change)
+const EMPTY_LIST = [];
+const EMPTY_OBJECT = {};
 
 // Works for old rows (full public URL) and new rows (just the file name)
 function getPath(imageUrl) {
@@ -57,6 +63,7 @@ function getStrength(password) {
 }
 
 function formatDate(dateString) {
+  if (!dateString) return "";
   return new Date(dateString).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "long",
@@ -118,8 +125,22 @@ function mapsLink(trip) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+// Link for a place saved inside a trip
+function placeLink(place) {
+  if (place.maps_uri) return place.maps_uri;
+  let url = `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`;
+  // Only Google place ids work with query_place_id
+  if (place.place_id && /^ChI/.test(String(place.place_id))) {
+    url += `&query_place_id=${encodeURIComponent(place.place_id)}`;
+  }
+  return url;
+}
+
 function App() {
-  const [memories, setMemories] = useState([]);
+  // Raw data from Supabase. The values the page uses (memories, friends,
+  // trips, folderCovers, onlineIds) are derived below, so they are empty
+  // whenever nobody is logged in, with no setState needed inside an effect.
+  const [memoriesData, setMemories] = useState([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState(null);
@@ -174,12 +195,14 @@ function App() {
   // Memory currently opened in the "View" popup
   const [viewing, setViewing] = useState(null);
   // Custom cover images for year folders: { "photos-2026": { path, url } }
-  const [folderCovers, setFolderCovers] = useState({});
+  const [folderCoversData, setFolderCovers] = useState({});
 
-  const [friends, setFriends] = useState([]);
+  const [friendsData, setFriends] = useState([]);
   const [friendsOpen, setFriendsOpen] = useState(false);
+  // User ids of members who are online right now
+  const [presenceIds, setOnlineIds] = useState([]);
 
-  const [trips, setTrips] = useState([]);
+  const [tripsData, setTrips] = useState([]);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [calMonth, setCalMonth] = useState(() => {
     const now = new Date();
@@ -206,6 +229,13 @@ function App() {
   const [tripStatusFilter, setTripStatusFilter] = useState("all");
   const [tripCategoryFilter, setTripCategoryFilter] = useState("all");
 
+  // Logged out (or mid password reset) = nothing to show
+  const memories = session ? memoriesData : EMPTY_LIST;
+  const friends = session ? friendsData : EMPTY_LIST;
+  const trips = session ? tripsData : EMPTY_LIST;
+  const onlineIds = session ? presenceIds : EMPTY_LIST;
+  const folderCovers = session ? folderCoversData : EMPTY_OBJECT;
+
   const isDeveloper =
     session?.user?.email?.trim().toLowerCase() ===
     DEVELOPER_EMAIL.trim().toLowerCase();
@@ -225,6 +255,32 @@ function App() {
 
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  // Online presence: every logged-in member announces they are here
+  useEffect(() => {
+    const userId = session?.user?.id;
+
+    if (!userId) return;
+
+    const channel = supabase.channel("online-members", {
+      config: { presence: { key: userId } },
+    });
+
+    channel
+      .on("presence", { event: "sync" }, () => {
+        setOnlineIds(Object.keys(channel.presenceState()));
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      setOnlineIds([]);
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
 
   // Countdown for the "Resend code" button
   useEffect(() => {
@@ -301,10 +357,27 @@ function App() {
       });
     }
 
+    // Places saved from the Destination Explorer, grouped by trip
+    const placesByTrip = {};
+    const { data: placeRows, error: placesError } = await supabase
+      .from("trip_places")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (placesError) {
+      console.error("Trip places error:", placesError);
+    } else {
+      (placeRows || []).forEach((place) => {
+        if (!placesByTrip[place.trip_id]) placesByTrip[place.trip_id] = [];
+        placesByTrip[place.trip_id].push(place);
+      });
+    }
+
     setTrips(
       rows.map((row) => ({
         ...row,
         cover_signed: coverMap[row.cover_url] || null,
+        places: placesByTrip[row.id] || [],
       })),
     );
   }
@@ -344,15 +417,8 @@ function App() {
 
   useEffect(() => {
     async function loadMemories() {
-      if (!session) {
-        setMemories([]);
-        setFriends([]);
-        setTrips([]);
-        setFolderCovers({});
-        setOpenYear(null);
-        setActiveSection(null);
-        return;
-      }
+      // Logged out: nothing to load (the page shows empty data by itself)
+      if (!session) return;
 
       loadFriends();
       loadTrips();
@@ -402,7 +468,7 @@ function App() {
     setLoggingIn(true);
 
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password,
     });
 
@@ -538,6 +604,18 @@ function App() {
     setLoginMode("reset-done");
   }
 
+  // Leave the reset without choosing a new password (the code already
+  // signed the user in behind the scenes, so sign them out again)
+  async function handleCancelRecovery() {
+    await supabase.auth.signOut();
+    setRecovering(false);
+    setResetError("");
+    setOtp("");
+    setNewPassword("");
+    setNewConfirm("");
+    setLoginMode("login");
+  }
+
   async function handleSignup(e) {
     e.preventDefault();
     setSignupError("");
@@ -598,6 +676,7 @@ function App() {
     setActiveSection(null);
     setCardMenuId(null);
     setViewing(null);
+    setRecovering(false);
     await supabase.auth.signOut();
   }
 
@@ -642,8 +721,9 @@ function App() {
     let imagePath = null;
 
     if (file) {
-      const ext = file.name.split(".").pop();
-      const path = `${crypto.randomUUID()}.${ext}`;
+      const hasExt = file.name.includes(".");
+      const ext = hasExt ? file.name.split(".").pop() : "";
+      const path = ext ? `${crypto.randomUUID()}.${ext}` : crypto.randomUUID();
 
       const { error: uploadError } = await supabase.storage
         .from(BUCKET)
@@ -674,6 +754,10 @@ function App() {
     if (error) {
       console.error("Insert error:", error);
       alert("Could not add memory. Check the console.");
+      // Don't leave an orphan file in storage
+      if (imagePath) {
+        await supabase.storage.from(BUCKET).remove([imagePath]);
+      }
       setUploading(false);
       return;
     }
@@ -687,7 +771,7 @@ function App() {
     }
 
     setUploading(false);
-    setMemories([{ ...data, signed_url: signedUrl }, ...memories]);
+    setMemories((current) => [{ ...data, signed_url: signedUrl }, ...current]);
 
     // Open the folder where the new memory was filed
     setActiveSection(mediaType === "video" ? "videos" : "photos");
@@ -703,6 +787,8 @@ function App() {
   async function handleDeleteMemory(id) {
     if (!window.confirm("Delete this memory?")) return;
 
+    const memory = memories.find((m) => m.id === id);
+
     const { error } = await supabase.from("memories").delete().eq("id", id);
 
     if (error) {
@@ -711,7 +797,16 @@ function App() {
       return;
     }
 
-    setMemories(memories.filter((memory) => memory.id !== id));
+    // Also remove the file so storage doesn't fill up
+    const path = memory ? getPath(memory.image_url) : null;
+    if (path) {
+      const { error: removeError } = await supabase.storage
+        .from(BUCKET)
+        .remove([path]);
+      if (removeError) console.error("Remove file error:", removeError);
+    }
+
+    setMemories((current) => current.filter((m) => m.id !== id));
   }
 
   // Three-dot menu: View
@@ -789,6 +884,8 @@ function App() {
     if (error) {
       console.error("Save cover error:", error);
       alert("Could not save the cover. Check the console.");
+      // The new file isn't used by anything, so clean it up
+      await supabase.storage.from(BUCKET).remove([path]);
       return;
     }
 
@@ -883,6 +980,9 @@ function App() {
     if (error) {
       console.error("Create trip error:", error);
       alert("Could not create the trip. Check the console.");
+      if (coverPath) {
+        await supabase.storage.from(BUCKET).remove([coverPath]);
+      }
       return;
     }
 
@@ -900,6 +1000,8 @@ function App() {
   async function handleDeleteTrip(id) {
     if (!window.confirm("Delete this trip?")) return;
 
+    const trip = trips.find((t) => t.id === id);
+
     const { error } = await supabase.from("trips").delete().eq("id", id);
 
     if (error) {
@@ -908,7 +1010,83 @@ function App() {
       return;
     }
 
-    setTrips(trips.filter((trip) => trip.id !== id));
+    if (trip?.cover_url) {
+      await supabase.storage.from(BUCKET).remove([trip.cover_url]);
+    }
+
+    setTrips((current) => current.filter((t) => t.id !== id));
+  }
+
+  // Add a place from the Destination Explorer to a trip
+  async function handleAddPlace(tripId, place) {
+    // The trip <select> gives text but trips.id may be a number
+    const trip = trips.find((t) => String(t.id) === String(tripId));
+
+    if (!trip) {
+      alert("Create a trip first, then add places to it.");
+      return false;
+    }
+
+    const placeId = String(
+      place.id ?? place.place_id ?? `${place.lat},${place.lng}`,
+    );
+
+    const { data, error } = await supabase
+      .from("trip_places")
+      .insert({
+        trip_id: trip.id,
+        place_id: placeId,
+        name: place.name,
+        address: place.address || null,
+        lat: place.lat,
+        lng: place.lng,
+        rating: place.rating ?? null,
+        maps_uri: place.mapsUri || place.maps_uri || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        alert("That place is already in this trip.");
+      } else {
+        console.error("Add place error:", error);
+        alert("Could not add the place. Check the console.");
+      }
+      return false;
+    }
+
+    setTrips((current) =>
+      current.map((t) =>
+        t.id === trip.id ? { ...t, places: [...(t.places || []), data] } : t,
+      ),
+    );
+    return true;
+  }
+
+  // Remove a saved place from a trip
+  async function handleRemovePlace(tripId, placeRowId) {
+    const { error } = await supabase
+      .from("trip_places")
+      .delete()
+      .eq("id", placeRowId);
+
+    if (error) {
+      console.error("Remove place error:", error);
+      alert("Could not remove the place. Check the console.");
+      return;
+    }
+
+    setTrips((current) =>
+      current.map((trip) =>
+        trip.id === tripId
+          ? {
+              ...trip,
+              places: (trip.places || []).filter((p) => p.id !== placeRowId),
+            }
+          : trip,
+      ),
+    );
   }
 
   function changeMonth(step) {
@@ -965,6 +1143,16 @@ function App() {
       (trip.end_date || trip.start_date) >= monthStartKey,
   );
 
+  // ----- Friends: who is online right now -----
+  const onlineFriends = friends.filter((friend) =>
+    onlineIds.includes(friend.id),
+  );
+  // Online members first, everyone else after (join order kept)
+  const sortedFriends = [...friends].sort(
+    (a, b) =>
+      Number(onlineIds.includes(b.id)) - Number(onlineIds.includes(a.id)),
+  );
+
   // ----- Photos / videos and year folders -----
   const photoCount = memories.filter((m) => getType(m) === "image").length;
   const videoCount = memories.filter((m) => getType(m) === "video").length;
@@ -977,14 +1165,16 @@ function App() {
         )
       : [];
 
-  const years = [...new Set(typeMemories.map(getYear))].sort((a, b) => b - a);
+  const years = [...new Set(typeMemories.map(getYear))].sort((a, b) =>
+    b.localeCompare(a),
+  );
 
   const yearMemories = openYear
     ? typeMemories
         .filter((m) => getYear(m) === openYear)
         .sort((a, b) =>
-          (b.memory_date || b.created_at).localeCompare(
-            a.memory_date || a.created_at,
+          (b.memory_date || b.created_at || "").localeCompare(
+            a.memory_date || a.created_at || "",
           ),
         )
     : [];
@@ -1016,6 +1206,18 @@ function App() {
   const pastTrips = filteredTrips
     .filter((trip) => tripEnd(trip) < todayKey)
     .sort((a, b) => b.start_date.localeCompare(a.start_date));
+
+  // Places already saved ("tripId:placeId") for the Destination Explorer
+  const savedPlaceIds = new Set(
+    trips.flatMap((trip) =>
+      (trip.places || []).map((place) => `${trip.id}:${place.place_id}`),
+    ),
+  );
+
+  // Trips that can still receive places (not finished), soonest first
+  const explorerTrips = trips
+    .filter((trip) => tripEnd(trip) >= todayKey)
+    .sort((a, b) => a.start_date.localeCompare(b.start_date));
 
   function renderTripCard(trip) {
     const status = tripStatus(trip, todayKey);
@@ -1052,6 +1254,35 @@ function App() {
 
           {trip.location && <p className="tp-location">📍 {trip.location}</p>}
 
+          {/* Places added from the Destination Explorer */}
+          {trip.places && trip.places.length > 0 && (
+            <div className="tp-places">
+              <p className="tp-places-title">
+                📌 Places to visit ({trip.places.length})
+              </p>
+              <ul>
+                {trip.places.map((place) => (
+                  <li key={place.id}>
+                    <a href={placeLink(place)} target="_blank" rel="noreferrer">
+                      {place.name}
+                      {place.rating
+                        ? ` ⭐ ${Number(place.rating).toFixed(1)}`
+                        : ""}
+                    </a>
+                    <button
+                      type="button"
+                      className="tp-place-remove"
+                      onClick={() => handleRemovePlace(trip.id, place.id)}
+                      title="Remove place"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="tp-actions">
             <a
               className="tp-map"
@@ -1062,6 +1293,7 @@ function App() {
               🗺️ Open in Maps
             </a>
             <button
+              type="button"
               className="tp-delete"
               onClick={() => handleDeleteTrip(trip.id)}
               title="Delete trip"
@@ -1083,10 +1315,12 @@ function App() {
           <a href="#home">Home</a>
           {isDeveloper && <a href="#trips">Trips</a>}
           <a href="#memories">Memories</a>
+          {session && <a href="#explore">Explore</a>}
 
           {/* Events dropdown with calendar */}
           <div className="events-menu">
             <button
+              type="button"
               className="nav-friends-btn"
               onClick={() => {
                 const next = !eventsOpen;
@@ -1106,14 +1340,18 @@ function App() {
                 ) : (
                   <>
                     <div className="cal-header">
-                      <button onClick={() => changeMonth(-1)}>‹</button>
+                      <button type="button" onClick={() => changeMonth(-1)}>
+                        ‹
+                      </button>
                       <span>
                         {calMonth.toLocaleDateString("en-IN", {
                           month: "long",
                           year: "numeric",
                         })}
                       </span>
-                      <button onClick={() => changeMonth(1)}>›</button>
+                      <button type="button" onClick={() => changeMonth(1)}>
+                        ›
+                      </button>
                     </div>
 
                     <div className="cal-grid">
@@ -1225,6 +1463,7 @@ function App() {
                             </div>
                             {isDeveloper && (
                               <button
+                                type="button"
                                 className="cal-trip-delete"
                                 onClick={() => handleDeleteTrip(trip.id)}
                                 title="Delete trip"
@@ -1245,6 +1484,7 @@ function App() {
           {/* Friends dropdown */}
           <div className="friends-menu">
             <button
+              type="button"
               className="nav-friends-btn"
               onClick={() => {
                 const next = !friendsOpen;
@@ -1254,7 +1494,12 @@ function App() {
             >
               Friends
               {session && (
-                <span className="friends-badge">{friends.length}</span>
+                <span
+                  className="friends-badge"
+                  title={`${onlineFriends.length} active now`}
+                >
+                  {onlineFriends.length}
+                </span>
               )}
             </button>
 
@@ -1267,26 +1512,42 @@ function App() {
                 ) : (
                   <>
                     <p className="friends-dropdown-title">
-                      <span>{friends.length}</span>{" "}
-                      {friends.length === 1 ? "friend" : "friends"} in the gang
+                      <span className="online-count">
+                        {onlineFriends.length}
+                      </span>{" "}
+                      active now · {friends.length}{" "}
+                      {friends.length === 1 ? "member" : "members"} in the gang
                     </p>
 
                     <ul className="friends-list">
-                      {friends.map((friend) => (
-                        <li key={friend.id}>
-                          <div className="friend-mini-avatar">
-                            {(friend.full_name || "F").charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="friend-mini-name">
-                              {friend.full_name || "Friend"}
-                            </p>
-                            <p className="friend-mini-date">
-                              Joined {formatDate(friend.joined_at)}
-                            </p>
-                          </div>
-                        </li>
-                      ))}
+                      {sortedFriends.map((friend) => {
+                        const isOnline = onlineIds.includes(friend.id);
+
+                        return (
+                          <li key={friend.id}>
+                            <div className="friend-mini-avatar">
+                              {(friend.full_name || "F")
+                                .charAt(0)
+                                .toUpperCase()}
+                              <span
+                                className={`presence-dot${isOnline ? " online" : ""}`}
+                              />
+                            </div>
+                            <div>
+                              <p className="friend-mini-name">
+                                {friend.full_name || "Friend"}
+                              </p>
+                              <p
+                                className={`friend-mini-date${isOnline ? " online-text" : ""}`}
+                              >
+                                {isOnline
+                                  ? "Active now"
+                                  : `Joined ${formatDate(friend.joined_at)}`}
+                              </p>
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </>
                 )}
@@ -1298,6 +1559,7 @@ function App() {
           {!session && (
             <div className="login-menu">
               <button
+                type="button"
                 className="nav-login-btn"
                 onClick={() => {
                   const next = !loginOpen;
@@ -1512,6 +1774,12 @@ function App() {
                           {resetBusy ? "Saving..." : "Update Password"}
                         </button>
                       </form>
+
+                      <p className="auth-switch">
+                        <button type="button" onClick={handleCancelRecovery}>
+                          Cancel
+                        </button>
+                      </p>
                     </>
                   )}
 
@@ -1541,6 +1809,7 @@ function App() {
           {!session && (
             <div className="signup-menu">
               <button
+                type="button"
                 className="nav-signup-btn"
                 onClick={() => {
                   const next = !signupOpen;
@@ -1705,6 +1974,7 @@ function App() {
           {session && (
             <div className="profile-menu">
               <button
+                type="button"
                 className="avatar-btn"
                 onClick={() => {
                   const next = !menuOpen;
@@ -1737,7 +2007,11 @@ function App() {
                     </button>
                   </form>
 
-                  <button className="logout-btn" onClick={handleLogout}>
+                  <button
+                    type="button"
+                    className="logout-btn"
+                    onClick={handleLogout}
+                  >
                     Logout
                   </button>
                 </div>
@@ -1763,6 +2037,7 @@ function App() {
           </p>
 
           <button
+            type="button"
             onClick={() =>
               document.getElementById("memories").scrollIntoView({
                 behavior: "smooth",
@@ -1781,6 +2056,7 @@ function App() {
         {/* Category cards: click to open */}
         <div className="memory-grid">
           <button
+            type="button"
             className={`memory-card category-card${activeSection === "photos" ? " active" : ""}`}
             onClick={() => openSection("photos")}
           >
@@ -1790,6 +2066,7 @@ function App() {
           </button>
 
           <button
+            type="button"
             className={`memory-card category-card${activeSection === "videos" ? " active" : ""}`}
             onClick={() => openSection("videos")}
           >
@@ -1801,6 +2078,7 @@ function App() {
           {/* Trips card: admin only */}
           {isDeveloper && (
             <button
+              type="button"
               className="memory-card category-card"
               onClick={() =>
                 document
@@ -1828,6 +2106,7 @@ function App() {
                 {activeSection === "videos" && "🎥 Our Videos"}
               </h3>
               <button
+                type="button"
                 className="folder-back"
                 onClick={() => {
                   setActiveSection(null);
@@ -1859,6 +2138,7 @@ function App() {
                       return (
                         <div className="folder-wrap" key={year}>
                           <button
+                            type="button"
                             className="folder-card"
                             onClick={() => setOpenYear(year)}
                           >
@@ -1910,6 +2190,7 @@ function App() {
               <>
                 <div className="folder-bar">
                   <button
+                    type="button"
                     className="folder-back"
                     onClick={() => setOpenYear(null)}
                   >
@@ -1924,6 +2205,7 @@ function App() {
                       {/* Three-dot menu */}
                       <div className="card-menu">
                         <button
+                          type="button"
                           className="card-menu-btn"
                           title="Options"
                           onClick={() =>
@@ -1938,12 +2220,16 @@ function App() {
                         {cardMenuId === memory.id && (
                           <div className="card-menu-dropdown">
                             {memory.signed_url && (
-                              <button onClick={() => handleViewMemory(memory)}>
+                              <button
+                                type="button"
+                                onClick={() => handleViewMemory(memory)}
+                              >
                                 👁️ View
                               </button>
                             )}
                             {memory.signed_url && (
                               <button
+                                type="button"
                                 onClick={() => handleDownloadMemory(memory)}
                               >
                                 ⬇️ Download
@@ -1951,6 +2237,7 @@ function App() {
                             )}
                             {isDeveloper && (
                               <button
+                                type="button"
                                 className="danger"
                                 onClick={() => {
                                   setCardMenuId(null);
@@ -1992,8 +2279,10 @@ function App() {
         {/* Login prompt (logged out) / Add memory form (logged in) */}
         {!session ? (
           <div className="login-prompt">
-            <p> Our memories are private. Log in to open them.</p>
-            <button onClick={showLogin}>Login</button>
+            <p>🔒 Our memories are private. Log in to open them.</p>
+            <button type="button" onClick={showLogin}>
+              Login
+            </button>
           </div>
         ) : (
           <form className="memory-form" onSubmit={handleAddMemory}>
@@ -2034,6 +2323,18 @@ function App() {
         )}
       </section>
 
+      {/* Explore: every logged-in member can discover spots; only the admin can add them to a trip */}
+      {session && (
+        <section className="explore-page" id="explore">
+          <DestinationMap
+            trips={isDeveloper ? explorerTrips : []}
+            savedIds={savedPlaceIds}
+            onAddPlace={handleAddPlace}
+            canAdd={isDeveloper}
+          />
+        </section>
+      )}
+
       {/* Trip Planner: admin only */}
       {session && isDeveloper && (
         <section className="trips-page" id="trips">
@@ -2043,6 +2344,7 @@ function App() {
               <p>🔒 Only you can see this page.</p>
             </div>
             <button
+              type="button"
               className="new-trip-btn"
               onClick={() => setNewTripOpen(!newTripOpen)}
             >
@@ -2159,6 +2461,7 @@ function App() {
           <div className="trips-chips">
             {STATUS_FILTERS.map((status) => (
               <button
+                type="button"
                 key={status}
                 className={`trips-chip${tripStatusFilter === status ? " active" : ""}`}
                 onClick={() => setTripStatusFilter(status)}
@@ -2196,7 +2499,11 @@ function App() {
       {viewing && (
         <div className="viewer-backdrop" onClick={() => setViewing(null)}>
           <div className="viewer-box" onClick={(e) => e.stopPropagation()}>
-            <button className="viewer-close" onClick={() => setViewing(null)}>
+            <button
+              type="button"
+              className="viewer-close"
+              onClick={() => setViewing(null)}
+            >
               ✕
             </button>
 
