@@ -35,6 +35,51 @@ const STATUS_FILTERS = ["all", "planning", "confirmed", "ongoing", "completed"];
 const EMPTY_LIST = [];
 const EMPTY_OBJECT = {};
 
+// ----- Menu icons (clean line icons, no extra library needed) -----
+function MenuIcon({ children }) {
+  return (
+    <svg
+      className="menu-icon"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const IconView = () => (
+  <MenuIcon>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+    <circle cx="12" cy="12" r="3" />
+  </MenuIcon>
+);
+
+const IconDownload = () => (
+  <MenuIcon>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </MenuIcon>
+);
+
+const IconTrash = () => (
+  <MenuIcon>
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+  </MenuIcon>
+);
+
 // Works for old rows (full public URL) and new rows (just the file name)
 function getPath(imageUrl) {
   if (!imageUrl) return null;
@@ -1031,11 +1076,15 @@ function App() {
   }, [session]);
 
   // Live memories: when any member adds, changes or deletes a photo/video,
-  // everyone logged in sees it instantly, with no refresh
+  // everyone logged in sees it without refreshing. Three layers keep it
+  // reliable: realtime events, a 15 second re-check, and a re-check when
+  // the tab becomes visible again.
   useEffect(() => {
     if (!myId) return;
 
     let cancelled = false;
+    // ids already shown (null until the first check finishes)
+    let known = null;
 
     function showMemoryToast(text) {
       setLiveToast(text);
@@ -1043,65 +1092,86 @@ function App() {
       toastTimerRef.current = setTimeout(() => setLiveToast(""), 4000);
     }
 
-    async function signedUrlFor(imageUrl) {
-      const path = getPath(imageUrl);
-      if (!path) return null;
-      const { data } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUrl(path, 3600);
-      return data?.signedUrl || null;
+    async function refreshMemories() {
+      const { data, error } = await supabase
+        .from("memories")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (cancelled) return;
+      if (error) {
+        console.error("Live memories refresh error:", error);
+        return;
+      }
+
+      const rows = data || [];
+      const paths = rows.map((row) => getPath(row.image_url)).filter(Boolean);
+
+      const urlMap = {};
+      if (paths.length > 0) {
+        const { data: signed } = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrls(paths, 3600);
+        (signed || []).forEach((item) => {
+          if (item.signedUrl) urlMap[item.path] = item.signedUrl;
+        });
+      }
+
+      if (cancelled) return;
+
+      // Tell the member about memories that just arrived
+      if (known) {
+        const fresh = rows.filter((row) => !known.has(row.id));
+        if (fresh.length > 0) {
+          const first = fresh[0];
+          const kind = first.media_type === "video" ? "video" : "photo";
+          showMemoryToast(
+            fresh.length === 1
+              ? `📸 New ${kind} added: ${first.title}`
+              : `📸 ${fresh.length} new memories added`,
+          );
+        }
+      }
+      known = new Set(rows.map((row) => row.id));
+
+      // Keep the old link for files already shown, so nothing flickers
+      setMemories((previous) => {
+        const old = new Map(previous.map((m) => [m.id, m]));
+        return rows.map((row) => {
+          const before = old.get(row.id);
+          const keepOld =
+            before && before.image_url === row.image_url && before.signed_url;
+          return {
+            ...row,
+            signed_url: keepOld || urlMap[getPath(row.image_url)] || null,
+          };
+        });
+      });
     }
 
     const channel = supabase
       .channel("live-memories")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "memories" },
-        async (payload) => {
-          const row = payload.new;
-          const signed = await signedUrlFor(row.image_url);
-          if (cancelled) return;
+        { event: "*", schema: "public", table: "memories" },
+        () => refreshMemories(),
+      )
+      .subscribe((status, err) => {
+        console.log("Live memories channel:", status, err || "");
+        if (status === "SUBSCRIBED") refreshMemories();
+      });
 
-          let isNew = false;
-          setMemories((current) => {
-            if (current.some((m) => m.id === row.id)) return current;
-            isNew = true;
-            return [{ ...row, signed_url: signed }, ...current];
-          });
+    const timer = setInterval(refreshMemories, 15000);
 
-          // Tell everyone except the person who just uploaded it
-          setTimeout(() => {
-            if (isNew) {
-              const kind = row.media_type === "video" ? "video" : "photo";
-              showMemoryToast(`📸 New ${kind} added: ${row.title}`);
-            }
-          }, 0);
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "memories" },
-        (payload) => {
-          setMemories((current) =>
-            current.map((m) =>
-              m.id === payload.new.id ? { ...m, ...payload.new } : m,
-            ),
-          );
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "memories" },
-        (payload) => {
-          setMemories((current) =>
-            current.filter((m) => m.id !== payload.old.id),
-          );
-        },
-      )
-      .subscribe();
+    function onVisible() {
+      if (document.visibilityState === "visible") refreshMemories();
+    }
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       supabase.removeChannel(channel);
     };
   }, [myId]);
@@ -3173,7 +3243,7 @@ function App() {
                                 type="button"
                                 onClick={() => handleViewMemory(memory)}
                               >
-                                👁️ View
+                                <IconView /> View
                               </button>
                             )}
                             {memory.signed_url && (
@@ -3181,7 +3251,7 @@ function App() {
                                 type="button"
                                 onClick={() => handleDownloadMemory(memory)}
                               >
-                                ⬇️ Download
+                                <IconDownload /> Download
                               </button>
                             )}
                             {isDeveloper && (
@@ -3193,7 +3263,7 @@ function App() {
                                   handleDeleteMemory(memory.id);
                                 }}
                               >
-                                🗑️ Delete
+                                <IconTrash /> Delete
                               </button>
                             )}
                           </div>
