@@ -136,6 +136,479 @@ function placeLink(place) {
   return url;
 }
 
+// ----- Trip extras: weather, budget, checklist -----
+const FORECAST_DAYS = 15; // the free forecast service looks ~16 days ahead
+
+function addDays(dateString, n) {
+  const d = new Date(dateString + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function weatherInfo(code) {
+  if (code === 0) return { icon: "☀️", text: "Clear" };
+  if (code <= 2) return { icon: "🌤️", text: "Partly cloudy" };
+  if (code === 3) return { icon: "☁️", text: "Cloudy" };
+  if (code <= 48) return { icon: "🌫️", text: "Fog" };
+  if (code <= 57) return { icon: "🌦️", text: "Drizzle" };
+  if (code <= 67) return { icon: "🌧️", text: "Rain" };
+  if (code <= 77) return { icon: "❄️", text: "Snow" };
+  if (code <= 82) return { icon: "🌧️", text: "Showers" };
+  if (code <= 86) return { icon: "❄️", text: "Snow showers" };
+  return { icon: "⛈️", text: "Thunderstorm" };
+}
+
+// Forecast for the trip dates (free Open-Meteo service, no API key)
+function TripWeather({ trip, today }) {
+  const [result, setResult] = useState({ key: "", days: null, error: "" });
+
+  const firstPlace =
+    trip.places && trip.places.length > 0 ? trip.places[0] : null;
+  const lat = firstPlace ? firstPlace.lat : null;
+  const lng = firstPlace ? firstPlace.lng : null;
+  const query = firstPlace ? "" : (trip.location || "").trim();
+
+  const lastForecastDay = addDays(today, FORECAST_DAYS);
+  const from = trip.start_date > today ? trip.start_date : today;
+  const end = tripEnd(trip);
+  const to = end < lastForecastDay ? end : lastForecastDay;
+
+  const enabled = from <= to && (lat != null || query !== "");
+  const key = `${trip.id}|${lat},${lng}|${query}|${from}|${to}`;
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        let latitude = lat;
+        let longitude = lng;
+
+        if (latitude == null) {
+          const geo = await fetch(
+            `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(query)}`,
+          );
+          const geoData = await geo.json();
+          const found = geoData.results && geoData.results[0];
+          if (!found) throw new Error("Place not found");
+          latitude = found.latitude;
+          longitude = found.longitude;
+        }
+
+        const response = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&start_date=${from}&end_date=${to}`,
+        );
+        if (!response.ok) throw new Error("Forecast failed");
+
+        const data = await response.json();
+        const daily = data.daily;
+        const days = daily.time.map((date, i) => ({
+          date,
+          code: daily.weather_code[i],
+          max: daily.temperature_2m_max[i],
+          min: daily.temperature_2m_min[i],
+          rain: daily.precipitation_probability_max[i],
+        }));
+
+        if (!cancelled) setResult({ key, days, error: "" });
+      } catch (err) {
+        console.error("Weather error:", err);
+        if (!cancelled) setResult({ key, days: null, error: "unavailable" });
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, lat, lng, query, from, to, key]);
+
+  if (!enabled) return null;
+
+  if (result.key !== key) {
+    return <p className="tp-weather-note">⛅ Loading forecast…</p>;
+  }
+
+  if (result.error || !result.days) {
+    return <p className="tp-weather-note">⛅ Forecast not available.</p>;
+  }
+
+  return (
+    <div className="tp-weather">
+      <p className="tp-places-title">⛅ Weather forecast</p>
+      <div className="tp-weather-row">
+        {result.days.map((day) => {
+          const info = weatherInfo(day.code);
+          return (
+            <div className="tp-weather-day" key={day.date} title={info.text}>
+              <span className="tp-weather-date">
+                {formatTripDate(day.date)}
+              </span>
+              <span className="tp-weather-icon">{info.icon}</span>
+              <span className="tp-weather-temp">
+                {Math.round(day.max)}° / {Math.round(day.min)}°
+              </span>
+              <span className="tp-weather-rain">💧 {day.rain ?? 0}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TripExpenses({ trip, onAdd, onRemove }) {
+  const [label, setLabel] = useState("");
+  const [amount, setAmount] = useState("");
+  const [people, setPeople] = useState(1);
+  const [busy, setBusy] = useState(false);
+
+  const expenses = trip.expenses || [];
+  const total = expenses.reduce(
+    (sum, item) => sum + Number(item.amount || 0),
+    0,
+  );
+  const perPerson = people > 0 ? total / people : total;
+
+  async function submit(e) {
+    e.preventDefault();
+    const value = Number(amount);
+    if (!label.trim() || !Number.isFinite(value) || value < 0) return;
+
+    setBusy(true);
+    const ok = await onAdd(trip.id, label.trim(), value);
+    setBusy(false);
+
+    if (ok) {
+      setLabel("");
+      setAmount("");
+    }
+  }
+
+  return (
+    <details className="tp-section">
+      <summary>💰 Budget · ₹{total.toLocaleString("en-IN")}</summary>
+
+      <ul className="tp-list">
+        {expenses.map((item) => (
+          <li key={item.id}>
+            <span>
+              {item.label} · ₹{Number(item.amount).toLocaleString("en-IN")}
+            </span>
+            <button
+              type="button"
+              className="tp-place-remove"
+              onClick={() => onRemove(trip.id, item.id)}
+              title="Remove expense"
+            >
+              ✕
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <form className="tp-inline-form" onSubmit={submit}>
+        <input
+          type="text"
+          placeholder="Expense (fuel, food…)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="₹"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          required
+        />
+        <button type="submit" disabled={busy}>
+          Add
+        </button>
+      </form>
+
+      <label className="tp-split">
+        Split between
+        <input
+          type="number"
+          min="1"
+          value={people}
+          onChange={(e) => setPeople(Math.max(1, Number(e.target.value) || 1))}
+        />
+        people ={" "}
+        <strong>₹{Math.round(perPerson).toLocaleString("en-IN")}</strong> each
+      </label>
+    </details>
+  );
+}
+
+function TripChecklist({ trip, onAdd, onToggle, onRemove }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const items = trip.checklist || [];
+  const doneCount = items.filter((item) => item.done).length;
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!text.trim()) return;
+
+    setBusy(true);
+    const ok = await onAdd(trip.id, text.trim());
+    setBusy(false);
+    if (ok) setText("");
+  }
+
+  return (
+    <details className="tp-section">
+      <summary>
+        🎒 Packing list · {doneCount}/{items.length}
+      </summary>
+
+      <ul className="tp-list">
+        {items.map((item) => (
+          <li key={item.id} className={item.done ? "done" : ""}>
+            <label>
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={() => onToggle(trip.id, item.id, !item.done)}
+              />
+              {item.item}
+            </label>
+            <button
+              type="button"
+              className="tp-place-remove"
+              onClick={() => onRemove(trip.id, item.id)}
+              title="Remove item"
+            >
+              ✕
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <form className="tp-inline-form" onSubmit={submit}>
+        <input
+          type="text"
+          placeholder="Add an item (torch, sunscreen…)"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          required
+        />
+        <button type="submit" disabled={busy}>
+          Add
+        </button>
+      </form>
+    </details>
+  );
+}
+
+// ----- Live gang chat -----
+function GangChat({ userId, userName, isAdmin, onlineCount }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const openRef = useRef(false);
+  const listRef = useRef(null);
+
+  // Load the latest messages, then listen for new ones as they happen
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error("Chat load error:", error);
+        return;
+      }
+
+      if (!cancelled) setMessages((data || []).reverse());
+    }
+
+    load();
+
+    const channel = supabase
+      .channel("gang-chat")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages" },
+        (payload) => {
+          const message = payload.new;
+          setMessages((current) =>
+            current.some((m) => m.id === message.id)
+              ? current
+              : [...current, message],
+          );
+          if (message.user_id !== userId && !openRef.current) {
+            setUnread((count) => count + 1);
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "chat_messages" },
+        (payload) => {
+          setMessages((current) =>
+            current.filter((m) => m.id !== payload.old.id),
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  // Keep the newest message in view
+  useEffect(() => {
+    if (open && listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages, open]);
+
+  function toggleChat() {
+    const next = !open;
+    openRef.current = next;
+    setOpen(next);
+    if (next) setUnread(0);
+  }
+
+  async function sendMessage(e) {
+    e.preventDefault();
+    const body = text.trim();
+    if (!body) return;
+
+    setSending(true);
+
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .insert({ user_id: userId, author_name: userName, body })
+      .select()
+      .single();
+
+    setSending(false);
+
+    if (error) {
+      console.error("Send message error:", error);
+      alert("Could not send the message. Check the console.");
+      return;
+    }
+
+    setText("");
+    setMessages((current) =>
+      current.some((m) => m.id === data.id) ? current : [...current, data],
+    );
+  }
+
+  async function deleteMessage(id) {
+    const { error } = await supabase
+      .from("chat_messages")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Delete message error:", error);
+      alert("Could not delete the message. Check the console.");
+      return;
+    }
+
+    setMessages((current) => current.filter((m) => m.id !== id));
+  }
+
+  return (
+    <>
+      {open && (
+        <div className="chat-panel">
+          <div className="chat-head">
+            <div>
+              <strong>💬 Gang chat</strong>
+              <span className="chat-online">
+                <span className="live-dot" /> {onlineCount} online
+              </span>
+            </div>
+            <button type="button" onClick={toggleChat} title="Close chat">
+              ✕
+            </button>
+          </div>
+
+          <div className="chat-list" ref={listRef}>
+            {messages.length === 0 && (
+              <p className="chat-empty">No messages yet. Say hi! 👋</p>
+            )}
+
+            {messages.map((message) => {
+              const mine = message.user_id === userId;
+
+              return (
+                <div
+                  key={message.id}
+                  className={`chat-msg${mine ? " mine" : ""}`}
+                >
+                  <span className="chat-meta">
+                    {mine ? "You" : message.author_name} ·{" "}
+                    {new Date(message.created_at).toLocaleTimeString("en-IN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  <p>{message.body}</p>
+
+                  {(mine || isAdmin) && (
+                    <button
+                      type="button"
+                      className="chat-delete"
+                      onClick={() => deleteMessage(message.id)}
+                      title="Delete message"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <form className="chat-form" onSubmit={sendMessage}>
+            <input
+              type="text"
+              placeholder="Type a message…"
+              value={text}
+              maxLength={1000}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <button type="submit" disabled={sending || !text.trim()}>
+              Send
+            </button>
+          </form>
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="chat-fab"
+        onClick={toggleChat}
+        title="Gang chat"
+      >
+        💬
+        {unread > 0 && <span className="chat-badge">{unread}</span>}
+      </button>
+    </>
+  );
+}
+
 function App() {
   // Raw data from Supabase. The values the page uses (memories, friends,
   // trips, folderCovers, onlineIds) are derived below, so they are empty
@@ -199,8 +672,11 @@ function App() {
 
   const [friendsData, setFriends] = useState([]);
   const [friendsOpen, setFriendsOpen] = useState(false);
-  // User ids of members who are online right now
-  const [presenceIds, setOnlineIds] = useState([]);
+  // Members online right now: { userId: { name, status } }
+  const [presenceUsers, setPresenceUsers] = useState(EMPTY_OBJECT);
+  // Small "someone came online" message
+  const [liveToast, setLiveToast] = useState("");
+  const toastTimerRef = useRef(null);
 
   const [tripsData, setTrips] = useState([]);
   const [eventsOpen, setEventsOpen] = useState(false);
@@ -233,7 +709,8 @@ function App() {
   const memories = session ? memoriesData : EMPTY_LIST;
   const friends = session ? friendsData : EMPTY_LIST;
   const trips = session ? tripsData : EMPTY_LIST;
-  const onlineIds = session ? presenceIds : EMPTY_LIST;
+  const onlineUsers = session ? presenceUsers : EMPTY_OBJECT;
+  const onlineIds = Object.keys(onlineUsers);
   const folderCovers = session ? folderCoversData : EMPTY_OBJECT;
 
   const isDeveloper =
@@ -256,31 +733,87 @@ function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // Online presence: every logged-in member announces they are here
-  useEffect(() => {
-    const userId = session?.user?.id;
+  // Live presence: every logged-in member announces they are here, and
+  // everyone sees who comes online, goes away or leaves, as it happens
+  const myId = session?.user?.id;
+  const myName =
+    session?.user?.user_metadata?.full_name || session?.user?.email || "Member";
 
-    if (!userId) return;
+  useEffect(() => {
+    if (!myId) return;
+
+    let subscribed = false;
+    // Ignore "joined" messages for people who were already online when we
+    // opened the page
+    let quietPeriod = true;
+    const quietTimer = setTimeout(() => {
+      quietPeriod = false;
+    }, 3000);
 
     const channel = supabase.channel("online-members", {
-      config: { presence: { key: userId } },
+      config: { presence: { key: myId } },
     });
+
+    function showToast(text) {
+      setLiveToast(text);
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setLiveToast(""), 4000);
+    }
+
+    // "active" while this tab is visible, "away" while it is in the background
+    function announce() {
+      if (!subscribed) return;
+      channel.track({
+        name: myName,
+        status: document.visibilityState === "visible" ? "active" : "away",
+        online_at: new Date().toISOString(),
+      });
+    }
 
     channel
       .on("presence", { event: "sync" }, () => {
-        setOnlineIds(Object.keys(channel.presenceState()));
+        const state = channel.presenceState();
+        const users = {};
+
+        Object.keys(state).forEach((id) => {
+          const entries = state[id];
+          const meta = entries[entries.length - 1] || {};
+          users[id] = {
+            name: meta.name || "Member",
+            status: meta.status || "active",
+          };
+        });
+
+        setPresenceUsers(users);
       })
-      .subscribe(async (status) => {
+      .on("presence", { event: "join" }, ({ key, newPresences }) => {
+        if (key === myId || quietPeriod) return;
+        const who = newPresences?.[0]?.name || "Someone";
+        showToast(`🟢 ${who} just came online`);
+      })
+      .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
+        if (key === myId) return;
+        const who = leftPresences?.[0]?.name || "Someone";
+        showToast(`⚪ ${who} went offline`);
+      })
+      .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          await channel.track({ online_at: new Date().toISOString() });
+          subscribed = true;
+          announce();
         }
       });
 
+    document.addEventListener("visibilitychange", announce);
+
     return () => {
-      setOnlineIds([]);
+      subscribed = false;
+      clearTimeout(quietTimer);
+      clearTimeout(toastTimerRef.current);
+      document.removeEventListener("visibilitychange", announce);
+      setPresenceUsers(EMPTY_OBJECT);
       supabase.removeChannel(channel);
     };
-  }, [session?.user?.id]);
+  }, [myId, myName]);
 
   // Countdown for the "Resend code" button
   useEffect(() => {
@@ -373,11 +906,38 @@ function App() {
       });
     }
 
+    // Budget items and packing list, grouped by trip
+    async function loadByTrip(table) {
+      const grouped = {};
+      const { data: tableRows, error: tableError } = await supabase
+        .from(table)
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (tableError) {
+        console.error(`${table} error:`, tableError);
+        return grouped;
+      }
+
+      (tableRows || []).forEach((row) => {
+        if (!grouped[row.trip_id]) grouped[row.trip_id] = [];
+        grouped[row.trip_id].push(row);
+      });
+      return grouped;
+    }
+
+    const [expensesByTrip, checklistByTrip] = await Promise.all([
+      loadByTrip("trip_expenses"),
+      loadByTrip("trip_checklist"),
+    ]);
+
     setTrips(
       rows.map((row) => ({
         ...row,
         cover_signed: coverMap[row.cover_url] || null,
         places: placesByTrip[row.id] || [],
+        expenses: expensesByTrip[row.id] || [],
+        checklist: checklistByTrip[row.id] || [],
       })),
     );
   }
@@ -1089,6 +1649,134 @@ function App() {
     );
   }
 
+  // Small helper: change one trip in state
+  function updateTrip(tripId, change) {
+    setTrips((current) =>
+      current.map((trip) => (trip.id === tripId ? change(trip) : trip)),
+    );
+  }
+
+  // Itinerary: put a saved place on a day (0 = not planned yet)
+  async function handleSetPlaceDay(tripId, placeRowId, day) {
+    const value = day > 0 ? day : null;
+
+    const { error } = await supabase
+      .from("trip_places")
+      .update({ day: value })
+      .eq("id", placeRowId);
+
+    if (error) {
+      console.error("Set day error:", error);
+      alert("Could not change the day. Check the console.");
+      return;
+    }
+
+    updateTrip(tripId, (trip) => ({
+      ...trip,
+      places: (trip.places || []).map((p) =>
+        p.id === placeRowId ? { ...p, day: value } : p,
+      ),
+    }));
+  }
+
+  // Budget
+  async function handleAddExpense(tripId, label, amount) {
+    const { data, error } = await supabase
+      .from("trip_expenses")
+      .insert({ trip_id: tripId, label, amount })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Add expense error:", error);
+      alert("Could not add the expense. Check the console.");
+      return false;
+    }
+
+    updateTrip(tripId, (trip) => ({
+      ...trip,
+      expenses: [...(trip.expenses || []), data],
+    }));
+    return true;
+  }
+
+  async function handleRemoveExpense(tripId, expenseId) {
+    const { error } = await supabase
+      .from("trip_expenses")
+      .delete()
+      .eq("id", expenseId);
+
+    if (error) {
+      console.error("Remove expense error:", error);
+      alert("Could not remove the expense. Check the console.");
+      return;
+    }
+
+    updateTrip(tripId, (trip) => ({
+      ...trip,
+      expenses: (trip.expenses || []).filter((e) => e.id !== expenseId),
+    }));
+  }
+
+  // Packing list
+  async function handleAddChecklist(tripId, text) {
+    const { data, error } = await supabase
+      .from("trip_checklist")
+      .insert({ trip_id: tripId, item: text })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Add item error:", error);
+      alert("Could not add the item. Check the console.");
+      return false;
+    }
+
+    updateTrip(tripId, (trip) => ({
+      ...trip,
+      checklist: [...(trip.checklist || []), data],
+    }));
+    return true;
+  }
+
+  async function handleToggleChecklist(tripId, itemId, done) {
+    const { error } = await supabase
+      .from("trip_checklist")
+      .update({ done })
+      .eq("id", itemId);
+
+    if (error) {
+      console.error("Toggle item error:", error);
+      alert("Could not update the item. Check the console.");
+      return;
+    }
+
+    updateTrip(tripId, (trip) => ({
+      ...trip,
+      checklist: (trip.checklist || []).map((i) =>
+        i.id === itemId ? { ...i, done } : i,
+      ),
+    }));
+  }
+
+  async function handleRemoveChecklist(tripId, itemId) {
+    const { error } = await supabase
+      .from("trip_checklist")
+      .delete()
+      .eq("id", itemId);
+
+    if (error) {
+      console.error("Remove item error:", error);
+      alert("Could not remove the item. Check the console.");
+      return;
+    }
+
+    updateTrip(tripId, (trip) => ({
+      ...trip,
+      checklist: (trip.checklist || []).filter((i) => i.id !== itemId),
+    }));
+  }
+
   function changeMonth(step) {
     setCalMonth(
       new Date(calMonth.getFullYear(), calMonth.getMonth() + step, 1),
@@ -1143,12 +1831,18 @@ function App() {
       (trip.end_date || trip.start_date) >= monthStartKey,
   );
 
-  // ----- Friends: who is online right now -----
-  const onlineFriends = friends.filter((friend) =>
-    onlineIds.includes(friend.id),
-  );
+  // ----- Friends: who is online right now (live) -----
+  const onlineCount = onlineIds.length;
+  // Members seen online who are not in the profiles list (yet)
+  const roster = [
+    ...friends,
+    ...onlineIds
+      .filter((id) => !friends.some((friend) => friend.id === id))
+      .map((id) => ({ id, full_name: onlineUsers[id].name, joined_at: null })),
+  ];
+  const memberCount = roster.length;
   // Online members first, everyone else after (join order kept)
-  const sortedFriends = [...friends].sort(
+  const sortedFriends = [...roster].sort(
     (a, b) =>
       Number(onlineIds.includes(b.id)) - Number(onlineIds.includes(a.id)),
   );
@@ -1219,6 +1913,78 @@ function App() {
     .filter((trip) => tripEnd(trip) >= todayKey)
     .sort((a, b) => a.start_date.localeCompare(b.start_date));
 
+  // Saved places grouped by day, with a day picker on each one
+  function renderItinerary(trip) {
+    const totalDays = Math.min(
+      daysBetween(trip.start_date, tripEnd(trip)) + 1,
+      30,
+    );
+    const dayOf = (place) =>
+      place.day >= 1 && place.day <= totalDays ? place.day : 0;
+
+    const groups = [];
+    for (let d = 1; d <= totalDays; d++) {
+      groups.push({
+        day: d,
+        items: trip.places.filter((place) => dayOf(place) === d),
+      });
+    }
+    groups.push({
+      day: 0,
+      items: trip.places.filter((place) => dayOf(place) === 0),
+    });
+
+    return groups
+      .filter((group) => group.items.length > 0)
+      .map((group) => (
+        <div key={group.day}>
+          <p className="tp-day-title">
+            {group.day === 0
+              ? "🗂️ Not planned yet"
+              : `📅 Day ${group.day} · ${formatTripDate(addDays(trip.start_date, group.day - 1))}`}
+          </p>
+
+          <ul>
+            {group.items.map((place) => (
+              <li key={place.id}>
+                <a href={placeLink(place)} target="_blank" rel="noreferrer">
+                  {place.name}
+                  {place.rating ? ` ⭐ ${Number(place.rating).toFixed(1)}` : ""}
+                </a>
+
+                <select
+                  className="tp-day-select"
+                  value={dayOf(place)}
+                  onChange={(e) =>
+                    handleSetPlaceDay(trip.id, place.id, Number(e.target.value))
+                  }
+                  title="Choose a day"
+                >
+                  <option value={0}>Day…</option>
+                  {Array.from({ length: totalDays }, (_, i) => i + 1).map(
+                    (d) => (
+                      <option key={d} value={d}>
+                        Day {d}
+                      </option>
+                    ),
+                  )}
+                </select>
+
+                <button
+                  type="button"
+                  className="tp-place-remove"
+                  onClick={() => handleRemovePlace(trip.id, place.id)}
+                  title="Remove place"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ));
+  }
+
   function renderTripCard(trip) {
     const status = tripStatus(trip, todayKey);
     const category = CATEGORIES[trip.category] || CATEGORIES.other;
@@ -1254,34 +2020,33 @@ function App() {
 
           {trip.location && <p className="tp-location">📍 {trip.location}</p>}
 
-          {/* Places added from the Destination Explorer */}
+          {/* Forecast for the trip dates (only when the trip is near) */}
+          {status !== "completed" && (
+            <TripWeather trip={trip} today={todayKey} />
+          )}
+
+          {/* Places added from the Destination Explorer, planned day by day */}
           {trip.places && trip.places.length > 0 && (
             <div className="tp-places">
               <p className="tp-places-title">
-                📌 Places to visit ({trip.places.length})
+                📌 Itinerary ({trip.places.length} places)
               </p>
-              <ul>
-                {trip.places.map((place) => (
-                  <li key={place.id}>
-                    <a href={placeLink(place)} target="_blank" rel="noreferrer">
-                      {place.name}
-                      {place.rating
-                        ? ` ⭐ ${Number(place.rating).toFixed(1)}`
-                        : ""}
-                    </a>
-                    <button
-                      type="button"
-                      className="tp-place-remove"
-                      onClick={() => handleRemovePlace(trip.id, place.id)}
-                      title="Remove place"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {renderItinerary(trip)}
             </div>
           )}
+
+          <TripExpenses
+            trip={trip}
+            onAdd={handleAddExpense}
+            onRemove={handleRemoveExpense}
+          />
+
+          <TripChecklist
+            trip={trip}
+            onAdd={handleAddChecklist}
+            onToggle={handleToggleChecklist}
+            onRemove={handleRemoveChecklist}
+          />
 
           <div className="tp-actions">
             <a
@@ -1496,9 +2261,9 @@ function App() {
               {session && (
                 <span
                   className="friends-badge"
-                  title={`${onlineFriends.length} active now`}
+                  title={`${onlineCount} online now`}
                 >
-                  {onlineFriends.length}
+                  {onlineCount}
                 </span>
               )}
             </button>
@@ -1512,11 +2277,9 @@ function App() {
                 ) : (
                   <>
                     <p className="friends-dropdown-title">
-                      <span className="online-count">
-                        {onlineFriends.length}
-                      </span>{" "}
-                      active now · {friends.length}{" "}
-                      {friends.length === 1 ? "member" : "members"} in the gang
+                      <span className="online-count">{onlineCount}</span> online
+                      now · {memberCount}{" "}
+                      {memberCount === 1 ? "member" : "members"} in the gang
                     </p>
 
                     <ul className="friends-list">
@@ -1541,8 +2304,12 @@ function App() {
                                 className={`friend-mini-date${isOnline ? " online-text" : ""}`}
                               >
                                 {isOnline
-                                  ? "Active now"
-                                  : `Joined ${formatDate(friend.joined_at)}`}
+                                  ? onlineUsers[friend.id]?.status === "away"
+                                    ? "Away (tab in background)"
+                                    : "Active now"
+                                  : friend.joined_at
+                                    ? `Joined ${formatDate(friend.joined_at)}`
+                                    : "Offline"}
                               </p>
                             </div>
                           </li>
@@ -2036,6 +2803,14 @@ function App() {
             friendship alive forever.
           </p>
 
+          {session && (
+            <p className="live-pill">
+              <span className="live-dot" />
+              {onlineCount} {onlineCount === 1 ? "member" : "members"} online
+              right now
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() =>
@@ -2518,6 +3293,17 @@ function App() {
           </div>
         </div>
       )}
+
+      {session && (
+        <GangChat
+          userId={session.user.id}
+          userName={myName}
+          isAdmin={isDeveloper}
+          onlineCount={onlineCount}
+        />
+      )}
+
+      {liveToast && <div className="live-toast">{liveToast}</div>}
 
       <footer>Made with ❤️ by our gang.</footer>
     </div>
