@@ -5411,3 +5411,254 @@ footer {
     transition: none;
   }
 }
+/* ===== Add a Memory: stylish upload form ===== */
+.memory-add-wrap {
+  margin: 36px auto 0;
+  max-width: 560px;
+  text-align: center;
+}
+
+.memory-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 28px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(255, 107, 107, 0.35);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.memory-add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(255, 107, 107, 0.45);
+}
+
+.memory-add-plus {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.memory-form-panel {
+  position: relative;
+  margin-top: 22px;
+  padding: 28px 26px 26px;
+  text-align: left;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  animation: formIn 0.35s ease;
+}
+
+@keyframes formIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.memory-form-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: #f1f1f4;
+  color: #555;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    transform 0.2s;
+}
+
+.memory-form-close:hover {
+  background: #ffe1e1;
+  transform: rotate(90deg);
+}
+
+.memory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.memory-form h3 {
+  margin: 0 0 4px;
+  font-size: 1.35rem;
+  color: #2b2b3a;
+}
+
+.memory-form input[type="text"],
+.memory-form input[type="date"],
+.memory-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 15px;
+  border: 1.5px solid #e4e4ec;
+  border-radius: 12px;
+  background: #fafafd;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #2b2b3a;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background 0.2s;
+}
+
+.memory-form textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.memory-form input:focus,
+.memory-form textarea:focus {
+  outline: none;
+  background: #fff;
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.15);
+}
+
+.memory-date-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b6b80;
+}
+
+/* Photo / video picker */
+.memory-form input[type="file"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 18px 14px;
+  border: 2px dashed #ffb4a2;
+  border-radius: 14px;
+  background: #fff6f3;
+  font-size: 0.9rem;
+  color: #6b6b80;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.memory-form input[type="file"]:hover {
+  background: #ffece6;
+  border-color: #ff6b6b;
+}
+
+.memory-form input[type="file"]::file-selector-button {
+  margin-right: 14px;
+  padding: 9px 18px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.memory-form > button[type="submit"] {
+  margin-top: 4px;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s;
+}
+
+.memory-form > button[type="submit"]:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(255, 107, 107, 0.4);
+}
+
+.memory-form > button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ===== Live "new photo" popup ===== */
+.live-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 14px 20px;
+  border-radius: 14px;
+  background: rgba(30, 30, 45, 0.92);
+  color: #fff;
+  font-size: 0.92rem;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  animation: toastIn 0.35s ease;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* New memory cards pop in softly when they arrive live */
+.memory-grid .memory-card {
+  animation: cardIn 0.45s ease;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .memory-form-panel {
+    padding: 24px 16px 18px;
+  }
+  .live-toast {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    max-width: none;
+  }
+}

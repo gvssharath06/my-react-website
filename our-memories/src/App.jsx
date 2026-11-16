@@ -1030,6 +1030,82 @@ function App() {
     loadMemories();
   }, [session]);
 
+  // Live memories: when any member adds, changes or deletes a photo/video,
+  // everyone logged in sees it instantly, with no refresh
+  useEffect(() => {
+    if (!myId) return;
+
+    let cancelled = false;
+
+    function showMemoryToast(text) {
+      setLiveToast(text);
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setLiveToast(""), 4000);
+    }
+
+    async function signedUrlFor(imageUrl) {
+      const path = getPath(imageUrl);
+      if (!path) return null;
+      const { data } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(path, 3600);
+      return data?.signedUrl || null;
+    }
+
+    const channel = supabase
+      .channel("live-memories")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "memories" },
+        async (payload) => {
+          const row = payload.new;
+          const signed = await signedUrlFor(row.image_url);
+          if (cancelled) return;
+
+          let isNew = false;
+          setMemories((current) => {
+            if (current.some((m) => m.id === row.id)) return current;
+            isNew = true;
+            return [{ ...row, signed_url: signed }, ...current];
+          });
+
+          // Tell everyone except the person who just uploaded it
+          setTimeout(() => {
+            if (isNew) {
+              const kind = row.media_type === "video" ? "video" : "photo";
+              showMemoryToast(`📸 New ${kind} added: ${row.title}`);
+            }
+          }, 0);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "memories" },
+        (payload) => {
+          setMemories((current) =>
+            current.map((m) =>
+              m.id === payload.new.id ? { ...m, ...payload.new } : m,
+            ),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "memories" },
+        (payload) => {
+          setMemories((current) =>
+            current.filter((m) => m.id !== payload.old.id),
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [myId]);
+
   async function handleLogin(e) {
     e.preventDefault();
     setLoggingIn(true);
@@ -1395,7 +1471,13 @@ function App() {
     }
 
     setUploading(false);
-    setMemories((current) => [{ ...data, signed_url: signedUrl }, ...current]);
+    setMemories((current) =>
+      current.some((m) => m.id === data.id)
+        ? current.map((m) =>
+            m.id === data.id ? { ...m, signed_url: signedUrl } : m,
+          )
+        : [{ ...data, signed_url: signedUrl }, ...current],
+    );
 
     // Open the folder where the new memory was filed
     setActiveSection(mediaType === "video" ? "videos" : "photos");
