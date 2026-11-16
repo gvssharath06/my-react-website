@@ -1,0 +1,216 @@
+{
+	"name": "vscode-django",
+	"displayName": "Django",
+	"description": "Beautiful syntax and scoped snippets for perfectionists with deadlines",
+	"version": "1.19.0",
+	"publisher": "batisteo",
+	"license": "MIT",
+	"icon": "images/vscode-django-icon.png",
+	"galleryBanner": {
+		"color": "#0c4b33",
+		"theme": "dark"
+	},
+	"engines": {
+		"vscode": "^1.49.0"
+	},
+	"recommendations": [
+		"ms-python.python"
+	],
+	"keywords": [
+		"python",
+		"django",
+		"web"
+	],
+	"categories": [
+		"Programming Languages",
+		"Snippets"
+	],
+	"homepage": "https://github.com/vscode-django/vscode-django",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/vscode-django/vscode-django"
+	},
+	"bugs": {
+		"url": "https://github.com/vscode-django/vscode-django/issues"
+	},
+	"activationEvents": [
+		"onLanguage:django-html",
+		"onLanguage:django-txt",
+		"onLanguage:python"
+	],
+	"main": "./out/extension",
+	"browser": "./out/extension-web",
+	"scripts": {
+		"vscode:prepublish": "yarn run compile && yarn run package-web",
+		"compile": "tsc -p ./",
+		"lint": "eslint src test && tsc -p test --noEmit",
+		"watch": "tsc -watch -p ./",
+		"pretest": "yarn run compile && yarn run lint",
+		"test": "vitest run && vscode-test",
+		"test:unit": "vitest",
+		"compile-web": "webpack",
+		"watch-web": "webpack --watch",
+		"package-web": "webpack --mode production --devtool hidden-source-map",
+		"chrome": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. ."
+	},
+	"dependencies": {
+		"path": "^0.12.7",
+		"toml": "^5.0.1"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@types/mocha": "^10.0.10",
+		"@typescript/native": "npm:typescript@^7.0.2",
+		"@types/node": "^22",
+		"@types/vscode": "~1.49.0",
+		"@vscode/test-cli": "^0.0.15",
+		"@vscode/test-electron": "^3.1.0",
+		"@vscode/test-web": "^0.0.81",
+		"@vscode/vsce": "^4.1.1",
+		"eslint": "^10.15.0",
+		"tm-grammars": "^1.32.22",
+		"ts-loader": "^9.6.2",
+		"typescript": "npm:@typescript/typescript6@^6.0.2",
+		"typescript-eslint": "^8.72.2",
+		"vite": "~8.3.5",
+		"vitest": "~5.0.5",
+		"vscode-oniguruma": "^2.0.1",
+		"vscode-textmate": "^9.3.2",
+		"webpack": "^5.112.2",
+		"webpack-cli": "^7.3.1"
+	},
+	"contributes": {
+		"commands": [
+			{
+				"command": "extension.Message",
+				"title": "Message"
+			}
+		],
+		"languages": [
+			{
+				"id": "django-html",
+				"aliases": [
+					"Django HTML",
+					"django"
+				],
+				"filenamePatterns": [
+					"**/templates/**/*.html"
+				],
+				"firstLine": "{%",
+				"configuration": "./language-configuration.json"
+			},
+			{
+				"id": "django-txt",
+				"aliases": [
+					"Django txt",
+					"django"
+				],
+				"filenamePatterns": [
+					"**/templates/**/*.txt",
+					"**/templates/**/*.svg",
+					"**/templates/**/*.tex",
+					"**/templates/**/*.latex",
+					"**/templates/**/*.ly"
+				],
+				"firstLine": "{%",
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "django-html",
+				"scopeName": "text.html.django",
+				"path": "./syntaxes/django-html.tmLanguage.json"
+			},
+			{
+				"language": "django-txt",
+				"scopeName": "text.django",
+				"path": "./syntaxes/django-txt.tmLanguage.json"
+			}
+		],
+		"snippets": [
+			{
+				"language": "django-html",
+				"path": "./snippets/templates/tags.json"
+			},
+			{
+				"language": "django-html",
+				"path": "./snippets/templates/filters.json"
+			},
+			{
+				"language": "django-txt",
+				"path": "./snippets/templates/tags.json"
+			},
+			{
+				"language": "django-txt",
+				"path": "./snippets/templates/filters.json"
+			}
+		],
+		"configurationDefaults": {
+			"emmet.includeLanguages": {
+				"django-html": "html"
+			},
+			"[django-html]": {
+				"editor.quickSuggestions": {
+					"other": true,
+					"comments": true,
+					"strings": true
+				}
+			}
+		},
+		"configuration": {
+			"type": "object",
+			"title": "Django configuration",
+			"properties": {
+				"django.snippets.use": {
+					"type": "boolean",
+					"default": true,
+					"description": "Activates the Python snippets"
+				},
+				"django.snippets.exclude": {
+					"type": "array",
+					"default": [
+						"cms",
+						"wagtail"
+					],
+					"description": "Exclude Python snippets by their file name. Can be 'import', 'postgres'..."
+				},
+				"django.i18n": {
+					"type": "boolean",
+					"default": true,
+					"description": "Activates the i18n features for snippets (eg.: _(\"\"))"
+				},
+				"django.showContributeNotification": {
+					"type": "boolean",
+					"default": true,
+					"description": "Seldom show notifications about this extension"
+				},
+				"django.format.command": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"markdownDescription": "Command that formats `django-html` templates: it reads the template on stdin and writes the result on stdout. For example `[\"djlint\", \"-\", \"--reformat\"]`, `[\"djangofmt\", \"-\"]`, `[\"djade\", \"-\"]` or `[\"djhtml\", \"-\"]`. Tools in the project `.venv` are found first. The tool reads its own configuration, like `[tool.djlint]` in `pyproject.toml`.",
+					"scope": "resource"
+				},
+				"django.cotton.dir": {
+					"type": "string",
+					"default": "cotton",
+					"description": "Folder of the django-cotton components inside the templates folders, like the COTTON_DIR setting"
+				}
+			}
+		}
+	},
+	"resolutions": {
+		"minimatch": "^11.0.1",
+		"morgan": "^1.12.1",
+		"on-headers": "^1.1.0",
+		"serialize-javascript": "^7.1.3"
+	},
+	"__metadata": {
+		"installedTimestamp": 1794818654935,
+		"targetPlatform": "undefined",
+		"size": 713431
+	}
+}
