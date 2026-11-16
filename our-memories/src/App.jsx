@@ -618,6 +618,8 @@ function App() {
   const [description, setDescription] = useState("");
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  // The "Add a Memory" form stays hidden until the button is clicked
+  const [memoryFormOpen, setMemoryFormOpen] = useState(false);
   const [memoryDate, setMemoryDate] = useState(() =>
     new Date().toLocaleDateString("en-CA"),
   );
@@ -636,6 +638,11 @@ function App() {
   const [password, setPassword] = useState("");
   const [loginOpen, setLoginOpen] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  // Clear login messages: { type: "error" | "info", text }
+  const [loginNotice, setLoginNotice] = useState(null);
+  // True when the email still has to be confirmed (shows a resend button)
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+  const [resendingConfirm, setResendingConfirm] = useState(false);
 
   // Forgot password: "login" | "forgot" | "code" | "newpass" | "reset-done"
   const [loginMode, setLoginMode] = useState("login");
@@ -1026,6 +1033,8 @@ function App() {
   async function handleLogin(e) {
     e.preventDefault();
     setLoggingIn(true);
+    setLoginNotice(null);
+    setNeedsConfirm(false);
 
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
@@ -1036,13 +1045,64 @@ function App() {
 
     if (error) {
       console.error("Login error:", error);
-      alert("Login failed. Check your email and password.");
+      const message = (error.message || "").toLowerCase();
+
+      if (message.includes("email not confirmed")) {
+        setNeedsConfirm(true);
+        setLoginNotice({
+          type: "error",
+          text: "Your email isn't confirmed yet. Open the confirmation email we sent (check spam too), click the link, then log in.",
+        });
+      } else if (message.includes("invalid login credentials")) {
+        setLoginNotice({
+          type: "error",
+          text: "Wrong email or password. If you just signed up, confirm your email first, then try again.",
+        });
+      } else {
+        setLoginNotice({
+          type: "error",
+          text: error.message || "Login failed. Please try again.",
+        });
+      }
       return;
     }
 
+    setLoginNotice(null);
     setEmail("");
     setPassword("");
     setLoginOpen(false);
+  }
+
+  // Send the sign-up confirmation email again
+  async function handleResendConfirmation() {
+    if (!email.trim()) {
+      setLoginNotice({ type: "error", text: "Type your email above first." });
+      return;
+    }
+
+    setResendingConfirm(true);
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    });
+
+    setResendingConfirm(false);
+
+    if (error) {
+      console.error("Resend confirmation error:", error);
+      setLoginNotice({
+        type: "error",
+        text: error.message || "Could not send the email. Try again later.",
+      });
+      return;
+    }
+
+    setLoginNotice({
+      type: "info",
+      text: "Confirmation email sent. Check your inbox and spam folder.",
+    });
   }
 
   // ----- Forgot password -----
@@ -1195,7 +1255,11 @@ function App() {
     const { data, error } = await supabase.auth.signUp({
       email: signupEmail.trim(),
       password: signupPassword,
-      options: { data: { full_name: signupName.trim() } },
+      options: {
+        data: { full_name: signupName.trim() },
+        // The confirmation link brings the person back to this site
+        emailRedirectTo: window.location.origin,
+      },
     });
 
     setSigningUp(false);
@@ -1342,6 +1406,7 @@ function App() {
     setFile(null);
     setMemoryDate(new Date().toLocaleDateString("en-CA"));
     form.reset();
+    setMemoryFormOpen(false);
   }
 
   async function handleDeleteMemory(id) {
@@ -2363,6 +2428,32 @@ function App() {
                           required
                         />
 
+                        {loginNotice && (
+                          <p
+                            className={
+                              loginNotice.type === "info"
+                                ? "form-info"
+                                : "form-error"
+                            }
+                          >
+                            {loginNotice.type === "info" ? "📧" : "⚠️"}{" "}
+                            {loginNotice.text}
+                          </p>
+                        )}
+
+                        {needsConfirm && (
+                          <button
+                            type="button"
+                            className="forgot-link"
+                            onClick={handleResendConfirmation}
+                            disabled={resendingConfirm}
+                          >
+                            {resendingConfirm
+                              ? "Sending..."
+                              : "Resend confirmation email"}
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           className="forgot-link"
@@ -2596,8 +2687,9 @@ function App() {
                       <div className="signup-success-icon">🎉</div>
                       <h4>You're almost in!</h4>
                       <p>
-                        Your account is created. If you get a confirmation
-                        email, click the link in it, then log in.
+                        Your account is created. Check your inbox (and spam
+                        folder) for a confirmation email, click the link in it,
+                        then log in.
                       </p>
                       <p>
                         The admin will approve you soon, and then you can open
@@ -3060,41 +3152,66 @@ function App() {
             </button>
           </div>
         ) : (
-          <form className="memory-form" onSubmit={handleAddMemory}>
-            <h3>Add a Memory</h3>
-            <input
-              type="text"
-              placeholder="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-            <textarea
-              placeholder="What happened?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <label className="memory-date-label">
-              When did this happen?
-              <input
-                type="date"
-                value={memoryDate}
-                onChange={(e) => setMemoryDate(e.target.value)}
-                required
-              />
-            </label>
-            <label className="memory-date-label">
-              Photo or video (max {MAX_FILE_MB} MB)
-              <input
-                type="file"
-                accept="image/*,video/*"
-                onChange={(e) => setFile(e.target.files[0] || null)}
-              />
-            </label>
-            <button type="submit" disabled={uploading}>
-              {uploading ? "Uploading..." : "Add Memory"}
+          <div className="memory-add-wrap">
+            <button
+              type="button"
+              className="memory-add-btn"
+              aria-expanded={memoryFormOpen}
+              onClick={() => setMemoryFormOpen((open) => !open)}
+            >
+              <span className="memory-add-plus">+</span>
+              {memoryFormOpen ? "Close" : "Add a Memory"}
             </button>
-          </form>
+
+            {memoryFormOpen && (
+              <div className="memory-form-panel">
+                <button
+                  type="button"
+                  className="memory-form-close"
+                  onClick={() => setMemoryFormOpen(false)}
+                  title="Close"
+                >
+                  ✕
+                </button>
+
+                <form className="memory-form" onSubmit={handleAddMemory}>
+                  <h3>✨ Save a new memory</h3>
+                  <input
+                    type="text"
+                    placeholder="Title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                  />
+                  <textarea
+                    placeholder="What happened?"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                  <label className="memory-date-label">
+                    When did this happen?
+                    <input
+                      type="date"
+                      value={memoryDate}
+                      onChange={(e) => setMemoryDate(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="memory-date-label">
+                    Photo or video (max {MAX_FILE_MB} MB)
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={(e) => setFile(e.target.files[0] || null)}
+                    />
+                  </label>
+                  <button type="submit" disabled={uploading}>
+                    {uploading ? "Uploading..." : "Add Memory"}
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
         )}
       </section>
 

@@ -19,67 +19,132 @@ const markerIcon = new L.Icon({
 
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const PHOTON_URL = "https://photon.komoot.io/api/";
+const PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse";
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
-const OSM_RADIUS_METERS = 15000;
 const WIKI_RADIUS_METERS = 10000; // Wikipedia allows 10 km at most
 const DEFAULT_CENTER = [12.127, 78.157]; // Dharmapuri
 const SEARCH_COUNTRY = "IN"; // use "" to search worldwide
-const MAX_PLACES = 24; // best spots shown
+const MAX_PLACES = 30; // spots shown for one category
+const MAX_ALL = 40; // spots shown for "All" (a mix of every kind)
 const MAX_ENRICH = 12; // OpenStreetMap places that get a Wikipedia photo + text
 
-// Each category is a list of OpenStreetMap tag filters
-const CATEGORIES = {
-  all: {
-    label: "✨ All",
-    sets: [
-      '["tourism"~"attraction|museum|viewpoint|zoo|theme_park|picnic_site|gallery|aquarium"]',
-      '["historic"]',
-      '["natural"~"waterfall|beach|peak|hot_spring|cave_entrance|spring"]',
-      '["waterway"="waterfall"]',
-      '["leisure"~"park|nature_reserve|water_park|garden"]',
-      '["boundary"="protected_area"]',
-      '["amenity"="place_of_worship"]["wikidata"]',
-    ],
+// ----- What we look for, grouped by kind of place -----
+// radius = how far from the town to look (metres)
+// limit = how many results the map server may send back for this group
+// prioritySets = a first, smaller search for the better known places
+const GROUPS = {
+  sights: {
+    radius: 15000,
+    limit: 60,
+    sets: ['["tourism"~"attraction|zoo|theme_park|aquarium"]'],
   },
-  nature: {
-    label: "🏞️ Nature",
+  historical: {
+    radius: 15000,
+    limit: 80,
+    sets: ['["historic"]', '["tourism"~"museum|gallery"]'],
+  },
+  hills: {
+    radius: 15000,
+    limit: 80,
     sets: [
-      '["natural"~"waterfall|beach|peak|hot_spring|cave_entrance|spring"]',
+      '["natural"~"peak|hill|cave_entrance|hot_spring|spring|beach|waterfall"]',
       '["waterway"="waterfall"]',
-      '["leisure"~"nature_reserve|park|garden"]',
+      '["tourism"~"viewpoint|picnic_site|camp_site"]',
+      '["leisure"~"nature_reserve|park|garden|water_park"]',
       '["boundary"="protected_area"]',
     ],
   },
   temples: {
-    label: "🛕 Temples",
-    sets: ['["amenity"="place_of_worship"]["religion"="hindu"]'],
+    radius: 12000,
+    limit: 120,
+    prioritySets: ['["amenity"="place_of_worship"]["wikidata"]'],
+    sets: ['["amenity"="place_of_worship"]'],
   },
-  historical: {
-    label: "🏰 Historical",
-    sets: ['["historic"]'],
-  },
-  adventure: {
-    label: "🏕️ Adventure",
-    sets: [
-      '["tourism"~"viewpoint|camp_site|picnic_site"]',
-      '["natural"~"peak|cave_entrance"]',
-      '["waterway"="waterfall"]',
+  stay: {
+    radius: 8000,
+    limit: 120,
+    prioritySets: [
+      '["tourism"~"hotel|resort|guest_house|hostel|motel|apartment"]["website"]',
     ],
+    sets: ['["tourism"~"hotel|resort|guest_house|hostel|motel|apartment"]'],
+  },
+  restaurants: {
+    radius: 6000,
+    limit: 120,
+    prioritySets: ['["amenity"="restaurant"]["website"]'],
+    sets: ['["amenity"="restaurant"]'],
   },
   food: {
-    label: "🍽️ Food",
-    sets: ['["amenity"~"restaurant|cafe"]'],
+    radius: 6000,
+    limit: 100,
+    sets: [
+      '["amenity"~"cafe|fast_food|food_court|ice_cream"]',
+      '["shop"~"bakery|confectionery|sweets"]',
+    ],
   },
+  essentials: {
+    radius: 6000,
+    limit: 120,
+    sets: [
+      '["amenity"~"hospital|pharmacy|atm|fuel|bus_station|police"]',
+      '["railway"="station"]',
+    ],
+  },
+};
+
+// The order used to mix kinds together in the "All" list
+const GROUP_ORDER = [
+  "sights",
+  "hills",
+  "temples",
+  "historical",
+  "stay",
+  "restaurants",
+  "food",
+  "essentials",
+];
+
+const CATEGORIES = {
+  all: { label: "✨ All", groups: GROUP_ORDER },
+  temples: { label: "🛕 Temples", groups: ["temples"] },
+  historical: { label: "🏰 Historical", groups: ["historical", "sights"] },
+  hills: { label: "⛰️ Hills & Nature", groups: ["hills"] },
+  stay: { label: "🏨 Hotels", groups: ["stay"] },
+  restaurants: { label: "🍽️ Restaurants", groups: ["restaurants"] },
+  food: { label: "🍜 Food spots", groups: ["food"] },
+  essentials: { label: "🏥 Essentials", groups: ["essentials"] },
+};
+
+const GROUP_ICONS = {
+  sights: "🎯",
+  historical: "🏛️",
+  hills: "⛰️",
+  temples: "🛕",
+  stay: "🏨",
+  restaurants: "🍽️",
+  food: "🍜",
+  essentials: "🏥",
+};
+
+const GROUP_BLURB = {
+  sights: "A popular sightseeing spot.",
+  historical: "A place with history worth visiting.",
+  hills: "A scenic spot for nature lovers.",
+  temples: "A place of worship to visit.",
+  stay: "A place to stay.",
+  restaurants: "A place to eat.",
+  food: "A quick bite or a sweet treat.",
+  essentials: "Useful to know about during your trip.",
 };
 
 const CATEGORY_ICONS = {
   waterfall: "💦",
   beach: "🏖️",
   peak: "⛰️",
+  hill: "⛰️",
   hot_spring: "♨️",
   spring: "💧",
   cave_entrance: "🕳️",
-  place_of_worship: "🛕",
   viewpoint: "🌄",
   camp_site: "🏕️",
   picnic_site: "🧺",
@@ -94,30 +159,48 @@ const CATEGORY_ICONS = {
   nature_reserve: "🌲",
   protected_area: "🌲",
   lake: "🏞️",
-  restaurant: "🍽️",
-  cafe: "☕",
   fort: "🏰",
   castle: "🏰",
   monument: "🗿",
   ruins: "🏚️",
   memorial: "🕯️",
-  "historic site": "🏛️",
+  hotel: "🏨",
+  resort: "🏝️",
+  guest_house: "🏠",
+  hostel: "🛏️",
+  motel: "🛏️",
+  apartment: "🏢",
+  restaurant: "🍽️",
+  cafe: "☕",
+  fast_food: "🍔",
+  food_court: "🍱",
+  ice_cream: "🍦",
+  bakery: "🥐",
+  confectionery: "🍬",
+  sweets: "🍬",
+  hospital: "🏥",
+  pharmacy: "💊",
+  atm: "🏧",
+  fuel: "⛽",
+  bus_station: "🚌",
+  station: "🚉",
+  police: "🚓",
 };
 
-// Which category chip a kind of place belongs to (used for Wikipedia results)
-const CATEGORY_GROUP = {
-  waterfall: "nature",
-  peak: "nature",
-  beach: "nature",
-  park: "nature",
-  lake: "nature",
-  cave_entrance: "nature",
+// Which "group" a Wikipedia article belongs to
+const WIKI_CATEGORY_GROUP = {
+  waterfall: "hills",
+  peak: "hills",
+  beach: "hills",
+  park: "hills",
+  lake: "hills",
+  cave_entrance: "hills",
+  viewpoint: "hills",
   place_of_worship: "temples",
   fort: "historical",
   castle: "historical",
   monument: "historical",
   museum: "historical",
-  viewpoint: "adventure",
 };
 
 // Wikipedia also lists villages, schools etc. Those are not tourist spots
@@ -126,6 +209,7 @@ const NOT_A_SPOT =
 
 // ----- Helpers -----
 function prettyCategory(category) {
+  if (category === "atm") return "ATM";
   const text = String(category || "attraction").replace(/_/g, " ");
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -163,7 +247,10 @@ function notabilityScore(tags) {
   if (tags.tourism === "attraction") score += 2;
   if (tags.waterway === "waterfall" || tags.natural === "waterfall") score += 2;
   if (tags.boundary === "protected_area") score += 1;
+  if (tags.stars) score += 1;
   if (tags.website || tags["contact:website"]) score += 1;
+  if (tags.phone || tags["contact:phone"]) score += 1;
+  if (tags.opening_hours) score += 1;
   if (tags.description) score += 1;
   return score;
 }
@@ -184,22 +271,98 @@ function osmLink(lat, lon) {
   return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
 }
 
-// Overpass query for one category around a point
-function buildQuery(lat, lon, categoryKey) {
-  const around = `(around:${OSM_RADIUS_METERS},${lat},${lon})`;
+// Decide which group an OpenStreetMap place belongs to
+function groupOf(tags) {
+  const tourism = tags.tourism || "";
+  const amenity = tags.amenity || "";
+  const shop = tags.shop || "";
 
-  const filters = CATEGORIES[categoryKey].sets
-    .map(
-      (tags) =>
-        `node${around}${tags};\n  way${around}${tags};\n  relation${around}${tags};`,
-    )
-    .join("\n  ");
+  if (amenity === "place_of_worship") return "temples";
+  if (/^(hotel|resort|guest_house|hostel|motel|apartment)$/.test(tourism))
+    return "stay";
+  if (amenity === "restaurant") return "restaurants";
+  if (
+    /^(cafe|fast_food|food_court|ice_cream)$/.test(amenity) ||
+    /^(bakery|confectionery|sweets)$/.test(shop)
+  )
+    return "food";
+  if (
+    /^(hospital|pharmacy|atm|fuel|bus_station|police)$/.test(amenity) ||
+    tags.railway === "station"
+  )
+    return "essentials";
+  if (
+    tags.natural ||
+    tags.waterway === "waterfall" ||
+    /^(viewpoint|picnic_site|camp_site)$/.test(tourism) ||
+    tags.leisure ||
+    tags.boundary === "protected_area"
+  )
+    return "hills";
+  if (tags.historic || /^(museum|gallery)$/.test(tourism)) return "historical";
+  return "sights";
+}
 
-  return `[out:json][timeout:25];
-(
-  ${filters}
-);
-out center tags 250;`;
+// Short text under the name, like "Hindu temple" or "Restaurant · South indian"
+function buildLabel(group, category, tags) {
+  if (group === "temples") {
+    const names = {
+      hindu: "Hindu temple",
+      jain: "Jain temple",
+      buddhist: "Buddhist temple",
+      muslim: "Mosque",
+      christian: "Church",
+      sikh: "Gurdwara",
+    };
+    return names[tags.religion] || "Place of worship";
+  }
+
+  const base = prettyCategory(category);
+
+  if ((group === "restaurants" || group === "food") && tags.cuisine) {
+    const cuisine = tags.cuisine
+      .split(";")
+      .slice(0, 2)
+      .map((c) => prettyCategory(c.trim()))
+      .join(", ");
+    return `${base} · ${cuisine}`;
+  }
+
+  return base;
+}
+
+function placeIcon(place) {
+  if (place.group === "temples") {
+    if (place.religion === "muslim") return "🕌";
+    if (place.religion === "christian") return "⛪";
+    if (place.religion === "buddhist") return "☸️";
+    if (place.religion === "sikh") return "🙏";
+    return "🛕";
+  }
+  return CATEGORY_ICONS[place.category] || GROUP_ICONS[place.group] || "📍";
+}
+
+function safeUrl(url) {
+  return /^https?:\/\//i.test(url || "") ? url : "";
+}
+
+// One search to the map server that covers every group we need
+function buildQuery(lat, lon, groupKeys) {
+  const blocks = [];
+
+  groupKeys.forEach((key) => {
+    const group = GROUPS[key];
+    const around = `(around:${group.radius},${lat},${lon})`;
+    const lines = (sets) =>
+      sets.map((tags) => `  nwr${around}${tags};`).join("\n");
+
+    if (group.prioritySets) {
+      blocks.push(`(\n${lines(group.prioritySets)}\n);\nout center tags 60;`);
+    }
+    blocks.push(`(\n${lines(group.sets)}\n);\nout center tags ${group.limit};`);
+  });
+
+  return `[out:json][timeout:40];\n${blocks.join("\n")}`;
 }
 
 // Place name suggestions while typing (Photon is made for autocomplete)
@@ -297,8 +460,11 @@ function guessCategory(text) {
 }
 
 // Well-known places near a point: Wikipedia articles with photo and text
-async function fetchWikiPlaces(lat, lon, categoryKey) {
-  if (categoryKey === "food") return [];
+async function fetchWikiPlaces(lat, lon, groupKeys) {
+  const wanted = ["temples", "historical", "hills"].filter((g) =>
+    groupKeys.includes(g),
+  );
+  if (wanted.length === 0) return [];
 
   const params = new URLSearchParams({
     action: "query",
@@ -334,8 +500,9 @@ async function fetchWikiPlaces(lat, lon, categoryKey) {
 
     const guess = guessCategory(`${description} ${page.title}`);
     if (!guess) continue;
-    if (categoryKey !== "all" && CATEGORY_GROUP[guess] !== categoryKey)
-      continue;
+
+    const group = WIKI_CATEGORY_GROUP[guess] || "hills";
+    if (!wanted.includes(group)) continue;
 
     result.push({
       id: `wiki-${page.pageid}`,
@@ -344,11 +511,16 @@ async function fetchWikiPlaces(lat, lon, categoryKey) {
       lng: coords.lon,
       address: "",
       rating: null,
+      group,
       category: guess,
+      religion: "",
       label: description
         ? description.charAt(0).toUpperCase() + description.slice(1)
         : prettyCategory(guess),
       description: truncate(page.extract || description, 220),
+      phone: "",
+      hours: "",
+      website: "",
       wikipedia: "",
       wikiUrl: `https://en.wikipedia.org/?curid=${page.pageid}`,
       photo: page.thumbnail?.source || null,
@@ -361,14 +533,14 @@ async function fetchWikiPlaces(lat, lon, categoryKey) {
   return result;
 }
 
-// Places from OpenStreetMap
-async function fetchOsmPlaces(lat, lon, categoryKey) {
+// Places from OpenStreetMap (temples, hotels, food, hills, essentials ...)
+async function fetchOsmPlaces(lat, lon, groupKeys) {
   const response = await fetch(OVERPASS_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
     },
-    body: "data=" + encodeURIComponent(buildQuery(lat, lon, categoryKey)),
+    body: "data=" + encodeURIComponent(buildQuery(lat, lon, groupKeys)),
   });
 
   if (!response.ok) {
@@ -380,10 +552,15 @@ async function fetchOsmPlaces(lat, lon, categoryKey) {
   }
 
   const data = await response.json();
-  const seen = new Set();
+  const seenIds = new Set();
+  const seenNames = new Set();
   const found = [];
 
   for (const item of data.elements || []) {
+    const elementId = `${item.type}-${item.id}`;
+    if (seenIds.has(elementId)) continue;
+    seenIds.add(elementId);
+
     const placeLat = item.lat ?? item.center?.lat;
     const placeLon = item.lon ?? item.center?.lon;
     if (placeLat == null || placeLon == null) continue;
@@ -392,30 +569,56 @@ async function fetchOsmPlaces(lat, lon, categoryKey) {
     const name = tags["name:en"] || tags.name;
     if (!name) continue;
 
+    const group = groupOf(tags);
+
     // The same place can appear as a node, a way and a relation
-    const key = nameKey(name);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const key = `${group}|${nameKey(name)}`;
+    if (seenNames.has(key)) continue;
+    seenNames.add(key);
 
     const rawCategory =
       tags.tourism ||
       tags.historic ||
       tags.natural ||
       tags.waterway ||
+      tags.amenity ||
+      tags.shop ||
+      tags.railway ||
       tags.leisure ||
       tags.boundary ||
-      tags.amenity ||
       "attraction";
 
+    const category =
+      group === "temples"
+        ? "place_of_worship"
+        : rawCategory === "yes"
+          ? "historic site"
+          : rawCategory;
+
+    const street = [tags["addr:housenumber"], tags["addr:street"]]
+      .filter(Boolean)
+      .join(" ");
+    const address =
+      tags["addr:full"] ||
+      [street, tags["addr:suburb"], tags["addr:city"]]
+        .filter(Boolean)
+        .join(", ");
+
     found.push({
-      id: `${item.type}-${item.id}`,
+      id: elementId,
       name,
       lat: placeLat,
       lng: placeLon,
-      address: tags["addr:full"] || tags["addr:street"] || "",
+      address,
       rating: null,
-      category: rawCategory === "yes" ? "historic site" : rawCategory,
+      group,
+      category,
+      religion: tags.religion || "",
+      label: buildLabel(group, category, tags),
       description: tags["description:en"] || tags.description || "",
+      phone: tags.phone || tags["contact:phone"] || "",
+      hours: tags.opening_hours || "",
+      website: safeUrl(tags.website || tags["contact:website"]),
       wikipedia: tags.wikipedia || "",
       wikiUrl: null,
       photo: tagPhoto(tags),
@@ -432,17 +635,18 @@ async function fetchOsmPlaces(lat, lon, categoryKey) {
 function mergePlaces(osmPlaces, wikiPlaces) {
   const byKey = new Map();
 
-  osmPlaces.forEach((place) => byKey.set(nameKey(place.name), place));
+  osmPlaces.forEach((place) =>
+    byKey.set(`${place.group}|${nameKey(place.name)}`, place),
+  );
 
   wikiPlaces.forEach((wiki) => {
-    const key = nameKey(wiki.name);
+    const key = `${wiki.group}|${nameKey(wiki.name)}`;
     const existing = byKey.get(key);
 
     if (existing) {
       existing.photo = wiki.photo || existing.photo;
       existing.description = wiki.description || existing.description;
       existing.wikiUrl = wiki.wikiUrl;
-      existing.label = existing.label || wiki.label;
       existing.score = Math.max(existing.score, wiki.score);
     } else {
       byKey.set(key, wiki);
@@ -450,6 +654,41 @@ function mergePlaces(osmPlaces, wikiPlaces) {
   });
 
   return [...byKey.values()];
+}
+
+function byScoreThenDistance(a, b) {
+  return b.score - a.score || a.distanceKm - b.distanceKm;
+}
+
+// "All" shows a mix: the best temple, the best hill, the best hotel ... in turn
+function pickBest(places, categoryKey) {
+  const sorted = [...places].sort(byScoreThenDistance);
+
+  if (categoryKey !== "all") return sorted.slice(0, MAX_PLACES);
+
+  const buckets = {};
+  sorted.forEach((place) => {
+    if (!buckets[place.group]) buckets[place.group] = [];
+    buckets[place.group].push(place);
+  });
+
+  const order = GROUP_ORDER.filter((group) => buckets[group]);
+  const picked = [];
+
+  for (let round = 0; picked.length < MAX_ALL; round++) {
+    let added = false;
+
+    for (const group of order) {
+      if (buckets[group][round] && picked.length < MAX_ALL) {
+        picked.push(buckets[group][round]);
+        added = true;
+      }
+    }
+
+    if (!added) break;
+  }
+
+  return picked.sort(byScoreThenDistance);
 }
 
 // Moves the map: fits all places, or centres on the searched town
@@ -548,6 +787,7 @@ export default function DestinationMap({
   // ----- Finding the best spots -----
   async function loadPlaces(lat, lon, selectedCategory) {
     const requestId = ++requestRef.current;
+    const groupKeys = CATEGORIES[selectedCategory].groups;
 
     setLoading(true);
     setError("");
@@ -558,8 +798,8 @@ export default function DestinationMap({
     try {
       // Ask both sources at the same time
       const [osmResult, wikiResult] = await Promise.allSettled([
-        fetchOsmPlaces(lat, lon, selectedCategory),
-        fetchWikiPlaces(lat, lon, selectedCategory),
+        fetchOsmPlaces(lat, lon, groupKeys),
+        fetchWikiPlaces(lat, lon, groupKeys),
       ]);
 
       // A newer search has started, so drop this answer
@@ -580,10 +820,7 @@ export default function DestinationMap({
         throw osmResult.reason;
       }
 
-      // Best known first, then the closest ones
-      const best = mergePlaces(osm, wiki)
-        .sort((a, b) => b.score - a.score || a.distanceKm - b.distanceKm)
-        .slice(0, MAX_PLACES);
+      const best = pickBest(mergePlaces(osm, wiki), selectedCategory);
 
       setPlaces(best);
 
@@ -662,6 +899,51 @@ export default function DestinationMap({
     }
   }
 
+  // Explore around the place where the person is right now
+  function locateMe() {
+    if (!navigator.geolocation) {
+      setError("Your browser can't share your location.");
+      return;
+    }
+
+    clearTimeout(typingTimerRef.current);
+    suggestRef.current++;
+    setSuggestions([]);
+    setLoading(true);
+    setError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        let name = "your location";
+
+        try {
+          const response = await fetch(
+            `${PHOTON_REVERSE_URL}?lat=${latitude}&lon=${longitude}&lang=en`,
+          );
+          if (response.ok) {
+            const data = await response.json();
+            const p = data.features?.[0]?.properties || {};
+            name =
+              p.city || p.locality || p.district || p.county || p.name || name;
+          }
+        } catch (err) {
+          console.error("Reverse search error:", err);
+        }
+
+        setDestination(name === "your location" ? "" : name);
+        startSearch(latitude, longitude, name);
+      },
+      () => {
+        setLoading(false);
+        setError(
+          "Could not get your location. Allow location access in your browser and try again.",
+        );
+      },
+      { timeout: 12000 },
+    );
+  }
+
   function handleCategoryChange(key) {
     setCategory(key);
 
@@ -693,7 +975,8 @@ export default function DestinationMap({
     <div className="explorer">
       <h3>🧭 Explore a Destination</h3>
       <p className="ex-note">
-        Type a place and pick it from the list to see the best spots to visit.
+        Search a place, or use your current location, to see temples, hills,
+        hotels, restaurants, food spots and essentials nearby.
       </p>
 
       <form className="ex-search" onSubmit={searchDestination}>
@@ -714,6 +997,15 @@ export default function DestinationMap({
             ))}
           </ul>
         )}
+
+        <button
+          type="button"
+          className="ex-locate"
+          onClick={locateMe}
+          disabled={loading}
+        >
+          📍 Near me
+        </button>
 
         <button type="submit" disabled={loading}>
           {loading ? "Searching..." : "Explore"}
@@ -775,7 +1067,9 @@ export default function DestinationMap({
                 icon={markerIcon}
               >
                 <Popup>
-                  <strong>{place.name}</strong>
+                  <strong>
+                    {placeIcon(place)} {place.name}
+                  </strong>
                   <br />
                   {place.label || prettyCategory(place.category)}
                   <br />
@@ -823,9 +1117,9 @@ export default function DestinationMap({
                 const summary =
                   info?.summary ||
                   truncate(place.description, 220) ||
-                  place.address ||
+                  GROUP_BLURB[place.group] ||
                   "A spot worth a visit.";
-                const icon = CATEGORY_ICONS[place.category] || "📍";
+                const icon = placeIcon(place);
 
                 return (
                   <div className="ex-card" key={place.id}>
@@ -848,15 +1142,45 @@ export default function DestinationMap({
                         {place.distanceKm < 1
                           ? "under 1 km"
                           : `${place.distanceKm.toFixed(1)} km`}{" "}
-                        from {searchedName}
+                        away
                       </p>
 
                       <p className="ex-desc">📖 {summary}</p>
+
+                      {(place.address || place.phone || place.hours) && (
+                        <p className="ex-meta">
+                          {place.address && (
+                            <span>📍 {truncate(place.address, 50)}</span>
+                          )}
+                          {place.phone && <span>📞 {place.phone}</span>}
+                          {place.hours && (
+                            <span>🕒 {truncate(place.hours, 44)}</span>
+                          )}
+                        </p>
+                      )}
 
                       <div className="ex-actions">
                         <button type="button" onClick={() => showOnMap(place)}>
                           🗺️ View on map
                         </button>
+
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          🧭 Directions
+                        </a>
+
+                        {place.website && (
+                          <a
+                            href={place.website}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            🌐 Website
+                          </a>
+                        )}
 
                         {wikiUrl && (
                           <a href={wikiUrl} target="_blank" rel="noreferrer">
@@ -885,8 +1209,9 @@ export default function DestinationMap({
       </div>
 
       <p className="ex-note">
-        Map data © OpenStreetMap contributors. Descriptions and photos come from
-        Wikipedia when available. ⭐ marks well-known places.
+        Map data © OpenStreetMap contributors. Photos and descriptions come from
+        Wikipedia when available. ⭐ marks well-known places. Contact details
+        show only where the map data has them.
       </p>
     </div>
   );
