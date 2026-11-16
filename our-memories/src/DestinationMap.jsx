@@ -104,26 +104,35 @@ const GROUP_ORDER = [
   "essentials",
 ];
 
+// Filter chips (restaurants and food spots are merged into one chip)
 const CATEGORIES = {
-  all: { label: "✨ All", groups: GROUP_ORDER },
-  temples: { label: "🛕 Temples", groups: ["temples"] },
-  historical: { label: "🏰 Historical", groups: ["historical", "sights"] },
-  hills: { label: "⛰️ Hills & Nature", groups: ["hills"] },
-  stay: { label: "🏨 Hotels", groups: ["stay"] },
-  restaurants: { label: "🍽️ Restaurants", groups: ["restaurants"] },
-  food: { label: "🍜 Food spots", groups: ["food"] },
-  essentials: { label: "🏥 Essentials", groups: ["essentials"] },
+  all: { label: "All", icon: "grid", groups: GROUP_ORDER },
+  temples: { label: "Temples", icon: "temple", groups: ["temples"] },
+  historical: {
+    label: "Historical",
+    icon: "landmark",
+    groups: ["historical", "sights"],
+  },
+  hills: { label: "Nature & Hills", icon: "mountain", groups: ["hills"] },
+  stay: { label: "Hotels", icon: "bed", groups: ["stay"] },
+  food: {
+    label: "Food & Cafés",
+    icon: "food",
+    groups: ["restaurants", "food"],
+  },
+  essentials: { label: "Essentials", icon: "plus", groups: ["essentials"] },
 };
 
-const GROUP_ICONS = {
-  sights: "🎯",
-  historical: "🏛️",
-  hills: "⛰️",
-  temples: "🛕",
-  stay: "🏨",
-  restaurants: "🍽️",
-  food: "🍜",
-  essentials: "🏥",
+// Icon shown for each kind of place
+const GROUP_ICON_NAMES = {
+  sights: "star",
+  historical: "landmark",
+  hills: "mountain",
+  temples: "temple",
+  stay: "bed",
+  restaurants: "food",
+  food: "food",
+  essentials: "plus",
 };
 
 const GROUP_BLURB = {
@@ -137,55 +146,137 @@ const GROUP_BLURB = {
   essentials: "Useful to know about during your trip.",
 };
 
-const CATEGORY_ICONS = {
-  waterfall: "💦",
-  beach: "🏖️",
-  peak: "⛰️",
-  hill: "⛰️",
-  hot_spring: "♨️",
-  spring: "💧",
-  cave_entrance: "🕳️",
-  viewpoint: "🌄",
-  camp_site: "🏕️",
-  picnic_site: "🧺",
-  museum: "🏛️",
-  gallery: "🖼️",
-  aquarium: "🐠",
-  zoo: "🦁",
-  theme_park: "🎢",
-  water_park: "🏊",
-  park: "🌳",
-  garden: "🌸",
-  nature_reserve: "🌲",
-  protected_area: "🌲",
-  lake: "🏞️",
-  fort: "🏰",
-  castle: "🏰",
-  monument: "🗿",
-  ruins: "🏚️",
-  memorial: "🕯️",
-  hotel: "🏨",
-  resort: "🏝️",
-  guest_house: "🏠",
-  hostel: "🛏️",
-  motel: "🛏️",
-  apartment: "🏢",
-  restaurant: "🍽️",
-  cafe: "☕",
-  fast_food: "🍔",
-  food_court: "🍱",
-  ice_cream: "🍦",
-  bakery: "🥐",
-  confectionery: "🍬",
-  sweets: "🍬",
-  hospital: "🏥",
-  pharmacy: "💊",
-  atm: "🏧",
-  fuel: "⛽",
-  bus_station: "🚌",
-  station: "🚉",
-  police: "🚓",
+// ----- Clean line icons (no extra library needed) -----
+const ICON_PATHS = {
+  compass: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+    </>
+  ),
+  temple: (
+    <>
+      <path d="M3 21h18" />
+      <path d="M5 21V11" />
+      <path d="M19 21V11" />
+      <path d="M12 3 4 9h16l-8-6Z" />
+      <path d="M9 21v-6h6v6" />
+    </>
+  ),
+  landmark: (
+    <>
+      <path d="M3 22h18" />
+      <path d="M6 18v-7" />
+      <path d="M10 18v-7" />
+      <path d="M14 18v-7" />
+      <path d="M18 18v-7" />
+      <path d="m12 2 8 5H4l8-5Z" />
+    </>
+  ),
+  mountain: <path d="m8 3 4 8 5-5 5 15H2L8 3z" />,
+  bed: (
+    <>
+      <path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8" />
+      <path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4" />
+      <path d="M12 4v6" />
+      <path d="M2 18h20" />
+    </>
+  ),
+  food: (
+    <>
+      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+      <path d="M7 2v20" />
+      <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+    </>
+  ),
+  plus: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 8v8" />
+      <path d="M8 12h8" />
+    </>
+  ),
+  star: (
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  ),
+  map: (
+    <>
+      <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21 3 6" />
+      <line x1="9" y1="3" x2="9" y2="18" />
+      <line x1="15" y1="6" x2="15" y2="21" />
+    </>
+  ),
+  directions: <polygon points="3 11 22 2 13 21 11 13 3 11" />,
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </>
+  ),
+  check: <polyline points="20 6 9 17 4 12" />,
+  addcircle: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v8" />
+      <path d="M8 12h8" />
+    </>
+  ),
+  phone: (
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </>
+  ),
 };
+
+function Icon({ name, size = 18 }) {
+  return (
+    <svg
+      className="ex-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {ICON_PATHS[name]}
+    </svg>
+  );
+}
 
 // Which "group" a Wikipedia article belongs to
 const WIKI_CATEGORY_GROUP = {
@@ -331,15 +422,9 @@ function buildLabel(group, category, tags) {
   return base;
 }
 
-function placeIcon(place) {
-  if (place.group === "temples") {
-    if (place.religion === "muslim") return "🕌";
-    if (place.religion === "christian") return "⛪";
-    if (place.religion === "buddhist") return "☸️";
-    if (place.religion === "sikh") return "🙏";
-    return "🛕";
-  }
-  return CATEGORY_ICONS[place.category] || GROUP_ICONS[place.group] || "📍";
+// Icon name for a place (based on the kind of place)
+function placeIconName(place) {
+  return GROUP_ICON_NAMES[place.group] || "pin";
 }
 
 function safeUrl(url) {
@@ -730,6 +815,8 @@ export default function DestinationMap({
   const [error, setError] = useState("");
   const [category, setCategory] = useState("all");
   const [tripId, setTripId] = useState("");
+  // "best" = top picks first, "near" = closest first
+  const [sortBy, setSortBy] = useState("best");
 
   const mapBoxRef = useRef(null);
   const typingTimerRef = useRef(null);
@@ -971,18 +1058,29 @@ export default function DestinationMap({
     await onAddPlace(activeTripId, place);
   }
 
+  // Top picks (best first) or Nearest (closest first)
+  const shownPlaces =
+    sortBy === "near"
+      ? [...places].sort((a, b) => a.distanceKm - b.distanceKm)
+      : places;
+
   return (
     <div className="explorer">
-      <h3>🧭 Explore a Destination</h3>
+      <h3>
+        <Icon name="compass" size={28} /> Explore a Destination
+      </h3>
       <p className="ex-note">
         Search a place, or use your current location, to see temples, hills,
-        hotels, restaurants, food spots and essentials nearby.
+        hotels, food and essentials nearby.
       </p>
 
       <form className="ex-search" onSubmit={searchDestination}>
+        <span className="ex-search-icon">
+          <Icon name="search" />
+        </span>
         <input
           type="text"
-          placeholder="🔍 Search a destination... (try Hogenakkal)"
+          placeholder="Search a destination... (try Hogenakkal)"
           value={destination}
           onChange={(e) => handleInputChange(e.target.value)}
           autoComplete="off"
@@ -992,7 +1090,7 @@ export default function DestinationMap({
           <ul className="ex-suggestions">
             {suggestions.map((s) => (
               <li key={s.key} onClick={() => pickSuggestion(s)}>
-                📍 {s.label}
+                <Icon name="pin" size={16} /> {s.label}
               </li>
             ))}
           </ul>
@@ -1004,7 +1102,7 @@ export default function DestinationMap({
           onClick={locateMe}
           disabled={loading}
         >
-          📍 Near me
+          <Icon name="pin" /> Near me
         </button>
 
         <button type="submit" disabled={loading}>
@@ -1012,7 +1110,11 @@ export default function DestinationMap({
         </button>
       </form>
 
-      {error && <p className="ex-error">⚠️ {error}</p>}
+      {error && (
+        <p className="ex-error">
+          <Icon name="clock" size={16} /> {error}
+        </p>
+      )}
 
       <div className="ex-chips">
         {Object.entries(CATEGORIES).map(([key, value]) => (
@@ -1022,7 +1124,7 @@ export default function DestinationMap({
             className={`ex-chip${category === key ? " active" : ""}`}
             onClick={() => handleCategoryChange(key)}
           >
-            {value.label}
+            <Icon name={value.icon} /> {value.label}
           </button>
         ))}
       </div>
@@ -1067,9 +1169,7 @@ export default function DestinationMap({
                 icon={markerIcon}
               >
                 <Popup>
-                  <strong>
-                    {placeIcon(place)} {place.name}
-                  </strong>
+                  <strong>{place.name}</strong>
                   <br />
                   {place.label || prettyCategory(place.category)}
                   <br />
@@ -1084,7 +1184,7 @@ export default function DestinationMap({
                         disabled={isSaved(place.id) || !activeTripId}
                         onClick={() => handleAdd(place)}
                       >
-                        {isSaved(place.id) ? "✓ In trip" : "➕ Add to my trip"}
+                        {isSaved(place.id) ? "In trip" : "Add to my trip"}
                       </button>
                     </>
                   )}
@@ -1106,10 +1206,28 @@ export default function DestinationMap({
           {!loading && places.length > 0 && (
             <>
               <h3>
-                🌍 Top {places.length} spots near {searchedName}
+                <Icon name="globe" size={24} /> Top {places.length} spots near{" "}
+                {searchedName}
               </h3>
 
-              {places.map((place, index) => {
+              <div className="ex-sort">
+                <button
+                  type="button"
+                  className={sortBy === "best" ? "active" : ""}
+                  onClick={() => setSortBy("best")}
+                >
+                  Top picks
+                </button>
+                <button
+                  type="button"
+                  className={sortBy === "near" ? "active" : ""}
+                  onClick={() => setSortBy("near")}
+                >
+                  Nearest
+                </button>
+              </div>
+
+              {shownPlaces.map((place, index) => {
                 const saved = isSaved(place.id);
                 const info = details[place.id];
                 const photo = info?.photo || place.photo;
@@ -1119,7 +1237,7 @@ export default function DestinationMap({
                   truncate(place.description, 220) ||
                   GROUP_BLURB[place.group] ||
                   "A spot worth a visit.";
-                const icon = placeIcon(place);
+                const iconName = placeIconName(place);
 
                 return (
                   <div className="ex-card" key={place.id}>
@@ -1127,17 +1245,24 @@ export default function DestinationMap({
                       {photo ? (
                         <img src={photo} alt={place.name} loading="lazy" />
                       ) : (
-                        <span>{icon}</span>
+                        <span className="ex-photo-fallback">
+                          <Icon name={iconName} size={44} />
+                        </span>
                       )}
                     </div>
 
                     <div className="ex-info-body">
                       <h4>
-                        {index + 1}. {icon} {place.name}
-                        {place.score >= 5 && " ⭐"}
+                        {index + 1}. {place.name}
+                        {place.score >= 5 && (
+                          <span className="ex-star" title="Well-known place">
+                            <Icon name="star" size={16} />
+                          </span>
+                        )}
                       </h4>
 
                       <p className="ex-rating">
+                        <Icon name={iconName} size={15} />{" "}
                         {place.label || prettyCategory(place.category)} ·{" "}
                         {place.distanceKm < 1
                           ? "under 1 km"
@@ -1145,23 +1270,33 @@ export default function DestinationMap({
                         away
                       </p>
 
-                      <p className="ex-desc">📖 {summary}</p>
+                      <p className="ex-desc">{summary}</p>
 
                       {(place.address || place.phone || place.hours) && (
                         <p className="ex-meta">
                           {place.address && (
-                            <span>📍 {truncate(place.address, 50)}</span>
+                            <span>
+                              <Icon name="pin" size={14} />{" "}
+                              {truncate(place.address, 50)}
+                            </span>
                           )}
-                          {place.phone && <span>📞 {place.phone}</span>}
+                          {place.phone && (
+                            <span>
+                              <Icon name="phone" size={14} /> {place.phone}
+                            </span>
+                          )}
                           {place.hours && (
-                            <span>🕒 {truncate(place.hours, 44)}</span>
+                            <span>
+                              <Icon name="clock" size={14} />{" "}
+                              {truncate(place.hours, 44)}
+                            </span>
                           )}
                         </p>
                       )}
 
                       <div className="ex-actions">
                         <button type="button" onClick={() => showOnMap(place)}>
-                          🗺️ View on map
+                          <Icon name="map" size={16} /> View on map
                         </button>
 
                         <a
@@ -1169,7 +1304,7 @@ export default function DestinationMap({
                           target="_blank"
                           rel="noreferrer"
                         >
-                          🧭 Directions
+                          <Icon name="directions" size={16} /> Directions
                         </a>
 
                         {place.website && (
@@ -1178,13 +1313,13 @@ export default function DestinationMap({
                             target="_blank"
                             rel="noreferrer"
                           >
-                            🌐 Website
+                            <Icon name="globe" size={16} /> Website
                           </a>
                         )}
 
                         {wikiUrl && (
                           <a href={wikiUrl} target="_blank" rel="noreferrer">
-                            📚 Read more
+                            <Icon name="book" size={16} /> Read more
                           </a>
                         )}
 
@@ -1195,7 +1330,16 @@ export default function DestinationMap({
                             disabled={saved || !activeTripId}
                             onClick={() => handleAdd(place)}
                           >
-                            {saved ? "✓ In trip" : "➕ Add to my trip"}
+                            {saved ? (
+                              <>
+                                <Icon name="check" size={16} /> In trip
+                              </>
+                            ) : (
+                              <>
+                                <Icon name="addcircle" size={16} /> Add to my
+                                trip
+                              </>
+                            )}
                           </button>
                         )}
                       </div>
@@ -1210,8 +1354,8 @@ export default function DestinationMap({
 
       <p className="ex-note">
         Map data © OpenStreetMap contributors. Photos and descriptions come from
-        Wikipedia when available. ⭐ marks well-known places. Contact details
-        show only where the map data has them.
+        Wikipedia when available. A star marks well-known places. Contact
+        details show only where the map data has them.
       </p>
     </div>
   );
