@@ -17,7 +17,11 @@ const markerIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+// Two free map servers: if the first one is busy, the second one is tried
+const OVERPASS_URLS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
 const PHOTON_URL = "https://photon.komoot.io/api/";
 const PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse";
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
@@ -28,8 +32,15 @@ const MAX_PLACES = 30; // spots shown for one category
 const MAX_ALL = 40; // spots shown for "All" (a mix of every kind)
 const MAX_ENRICH = 12; // OpenStreetMap places that get a Wikipedia photo + text
 
+// Kinds of places where "close to you" matters more than "famous".
+// (Hotels, food and essentials are ranked by nearness + how complete they are.)
+const LOCAL_GROUPS = ["stay", "restaurants", "food", "essentials"];
+// If a local search finds fewer places than this, search a wider area
+const MIN_LOCAL_RESULTS = 8;
+const WIDEN_SCALE = 2.5;
+
 // ----- What we look for, grouped by kind of place -----
-// radius = how far from the town to look (metres)
+// radius = how far from the town / your location to look (metres)
 // limit = how many results the map server may send back for this group
 // prioritySets = a first, smaller search for the better known places
 const GROUPS = {
@@ -60,33 +71,33 @@ const GROUPS = {
     prioritySets: ['["amenity"="place_of_worship"]["wikidata"]'],
     sets: ['["amenity"="place_of_worship"]'],
   },
+  // Local groups: a smaller radius (so results are really nearby)
+  // and a bigger limit (so the server does not cut the list short)
   stay: {
-    radius: 8000,
-    limit: 120,
-    prioritySets: [
-      '["tourism"~"hotel|resort|guest_house|hostel|motel|apartment"]["website"]',
+    radius: 5000,
+    limit: 300,
+    sets: [
+      '["tourism"~"hotel|resort|guest_house|hostel|motel|apartment|homestay|chalet"]',
     ],
-    sets: ['["tourism"~"hotel|resort|guest_house|hostel|motel|apartment"]'],
   },
   restaurants: {
-    radius: 6000,
-    limit: 120,
-    prioritySets: ['["amenity"="restaurant"]["website"]'],
-    sets: ['["amenity"="restaurant"]'],
+    radius: 3500,
+    limit: 300,
+    sets: ['["amenity"~"restaurant|biergarten"]'],
   },
   food: {
-    radius: 6000,
-    limit: 100,
+    radius: 3500,
+    limit: 300,
     sets: [
       '["amenity"~"cafe|fast_food|food_court|ice_cream"]',
       '["shop"~"bakery|confectionery|sweets"]',
     ],
   },
   essentials: {
-    radius: 6000,
-    limit: 120,
+    radius: 4000,
+    limit: 300,
     sets: [
-      '["amenity"~"hospital|pharmacy|atm|fuel|bus_station|police"]',
+      '["amenity"~"hospital|clinic|pharmacy|atm|bank|fuel|bus_station|police"]',
       '["railway"="station"]',
     ],
   },
@@ -329,7 +340,9 @@ function nameKey(name) {
   return key || name.toLowerCase();
 }
 
-// Places that have Wikipedia / photos / websites are the well-known ones
+// Places that have Wikipedia / photos / websites / full details are the
+// well-known or well-kept ones. Hotels and food places get extra points for
+// the details that show a real, active business.
 function notabilityScore(tags) {
   let score = 0;
   if (tags.wikipedia) score += 5;
@@ -338,12 +351,30 @@ function notabilityScore(tags) {
   if (tags.tourism === "attraction") score += 2;
   if (tags.waterway === "waterfall" || tags.natural === "waterfall") score += 2;
   if (tags.boundary === "protected_area") score += 1;
-  if (tags.stars) score += 1;
+  if (tags.stars) score += 1.5;
   if (tags.website || tags["contact:website"]) score += 1;
   if (tags.phone || tags["contact:phone"]) score += 1;
   if (tags.opening_hours) score += 1;
   if (tags.description) score += 1;
+  if (tags.cuisine) score += 0.5;
+  if (tags.brand) score += 1;
+  if (tags.internet_access === "wlan" || tags.internet_access === "yes")
+    score += 0.5;
+  if (tags.air_conditioning === "yes") score += 0.5;
+  if (tags.outdoor_seating === "yes") score += 0.3;
+  if (tags.wheelchair === "yes") score += 0.3;
+  if (tags["contact:facebook"] || tags["contact:instagram"] || tags.facebook)
+    score += 0.5;
+  if (tags["addr:street"] || tags["addr:full"]) score += 0.3;
   return score;
+}
+
+// Final ranking number. Tourist places: famous first (distance matters a
+// little). Hotels / food / essentials: nearby first (a closer place beats a
+// far one unless the far one is clearly better).
+function rankValue(place) {
+  const weight = LOCAL_GROUPS.includes(place.group) ? 0.9 : 0.1;
+  return place.score - place.distanceKm * weight;
 }
 
 // Photo straight from the OpenStreetMap tags (if any)
@@ -369,16 +400,22 @@ function groupOf(tags) {
   const shop = tags.shop || "";
 
   if (amenity === "place_of_worship") return "temples";
-  if (/^(hotel|resort|guest_house|hostel|motel|apartment)$/.test(tourism))
+  if (
+    /^(hotel|resort|guest_house|hostel|motel|apartment|homestay|chalet)$/.test(
+      tourism,
+    )
+  )
     return "stay";
-  if (amenity === "restaurant") return "restaurants";
+  if (/^(restaurant|biergarten)$/.test(amenity)) return "restaurants";
   if (
     /^(cafe|fast_food|food_court|ice_cream)$/.test(amenity) ||
     /^(bakery|confectionery|sweets)$/.test(shop)
   )
     return "food";
   if (
-    /^(hospital|pharmacy|atm|fuel|bus_station|police)$/.test(amenity) ||
+    /^(hospital|clinic|pharmacy|atm|bank|fuel|bus_station|police)$/.test(
+      amenity,
+    ) ||
     tags.railway === "station"
   )
     return "essentials";
@@ -431,13 +468,15 @@ function safeUrl(url) {
   return /^https?:\/\//i.test(url || "") ? url : "";
 }
 
-// One search to the map server that covers every group we need
-function buildQuery(lat, lon, groupKeys) {
+// One search to the map server that covers every group we need.
+// scale > 1 widens the search area (used when very few places are nearby).
+function buildQuery(lat, lon, groupKeys, scale = 1) {
   const blocks = [];
 
   groupKeys.forEach((key) => {
     const group = GROUPS[key];
-    const around = `(around:${group.radius},${lat},${lon})`;
+    const radius = Math.round(group.radius * scale);
+    const around = `(around:${radius},${lat},${lon})`;
     const lines = (sets) =>
       sets.map((tags) => `  nwr${around}${tags};`).join("\n");
 
@@ -618,25 +657,37 @@ async function fetchWikiPlaces(lat, lon, groupKeys) {
   return result;
 }
 
-// Places from OpenStreetMap (temples, hotels, food, hills, essentials ...)
-async function fetchOsmPlaces(lat, lon, groupKeys) {
-  const response = await fetch(OVERPASS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body: "data=" + encodeURIComponent(buildQuery(lat, lon, groupKeys)),
-  });
+// Ask the map servers one after another until one of them answers
+async function askOverpass(query) {
+  let lastStatus = 0;
 
-  if (!response.ok) {
-    throw new Error(
-      response.status === 429 || response.status === 504
-        ? "The map server is busy right now. Please try again in a moment."
-        : "Could not load nearby places. Please try again.",
-    );
+  for (const url of OVERPASS_URLS) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: "data=" + encodeURIComponent(query),
+      });
+
+      if (response.ok) return await response.json();
+      lastStatus = response.status;
+    } catch (err) {
+      console.error("Map server error:", url, err);
+    }
   }
 
-  const data = await response.json();
+  throw new Error(
+    lastStatus === 429 || lastStatus === 504 || lastStatus === 0
+      ? "The map server is busy right now. Please try again in a moment."
+      : "Could not load nearby places. Please try again.",
+  );
+}
+
+// Places from OpenStreetMap (temples, hotels, food, hills, essentials ...)
+async function fetchOsmPlaces(lat, lon, groupKeys, scale = 1) {
+  const data = await askOverpass(buildQuery(lat, lon, groupKeys, scale));
   const seenIds = new Set();
   const seenNames = new Set();
   const found = [];
@@ -657,7 +708,10 @@ async function fetchOsmPlaces(lat, lon, groupKeys) {
     const group = groupOf(tags);
 
     // The same place can appear as a node, a way and a relation
-    const key = `${group}|${nameKey(name)}`;
+    // (branches of one chain far apart are kept as separate places)
+    const key = `${group}|${nameKey(name)}|${Math.round(placeLat * 200)}|${Math.round(
+      placeLon * 200,
+    )}`;
     if (seenNames.has(key)) continue;
     seenNames.add(key);
 
@@ -718,15 +772,16 @@ async function fetchOsmPlaces(lat, lon, groupKeys) {
 
 // Same place from both sources becomes one card with the best of each
 function mergePlaces(osmPlaces, wikiPlaces) {
-  const byKey = new Map();
-
-  osmPlaces.forEach((place) =>
-    byKey.set(`${place.group}|${nameKey(place.name)}`, place),
-  );
+  // Hotels / food can have many branches with the same name, so the
+  // OpenStreetMap places are kept in a list and only matched by name
+  // against the Wikipedia places.
+  const merged = [...osmPlaces];
 
   wikiPlaces.forEach((wiki) => {
     const key = `${wiki.group}|${nameKey(wiki.name)}`;
-    const existing = byKey.get(key);
+    const existing = merged.find(
+      (place) => `${place.group}|${nameKey(place.name)}` === key,
+    );
 
     if (existing) {
       existing.photo = wiki.photo || existing.photo;
@@ -734,20 +789,20 @@ function mergePlaces(osmPlaces, wikiPlaces) {
       existing.wikiUrl = wiki.wikiUrl;
       existing.score = Math.max(existing.score, wiki.score);
     } else {
-      byKey.set(key, wiki);
+      merged.push(wiki);
     }
   });
 
-  return [...byKey.values()];
+  return merged;
 }
 
-function byScoreThenDistance(a, b) {
-  return b.score - a.score || a.distanceKm - b.distanceKm;
+function byRank(a, b) {
+  return rankValue(b) - rankValue(a) || a.distanceKm - b.distanceKm;
 }
 
 // "All" shows a mix: the best temple, the best hill, the best hotel ... in turn
 function pickBest(places, categoryKey) {
-  const sorted = [...places].sort(byScoreThenDistance);
+  const sorted = [...places].sort(byRank);
 
   if (categoryKey !== "all") return sorted.slice(0, MAX_PLACES);
 
@@ -773,7 +828,7 @@ function pickBest(places, categoryKey) {
     if (!added) break;
   }
 
-  return picked.sort(byScoreThenDistance);
+  return picked.sort(byRank);
 }
 
 // Moves the map: fits all places, or centres on the searched town
@@ -875,6 +930,8 @@ export default function DestinationMap({
   async function loadPlaces(lat, lon, selectedCategory) {
     const requestId = ++requestRef.current;
     const groupKeys = CATEGORIES[selectedCategory].groups;
+    // Hotels, food and essentials only (no tourist sights in the list)
+    const localOnly = groupKeys.every((g) => LOCAL_GROUPS.includes(g));
 
     setLoading(true);
     setError("");
@@ -892,7 +949,7 @@ export default function DestinationMap({
       // A newer search has started, so drop this answer
       if (requestId !== requestRef.current) return;
 
-      const osm = osmResult.status === "fulfilled" ? osmResult.value : [];
+      let osm = osmResult.status === "fulfilled" ? osmResult.value : [];
       const wiki = wikiResult.status === "fulfilled" ? wikiResult.value : [];
 
       if (osmResult.status === "rejected") {
@@ -905,6 +962,22 @@ export default function DestinationMap({
       // Only an error when there is nothing at all to show
       if (osmResult.status === "rejected" && wiki.length === 0) {
         throw osmResult.reason;
+      }
+
+      // Very few hotels / food places nearby (a small village)?
+      // Look in a wider area so the list is not empty.
+      if (
+        localOnly &&
+        osmResult.status === "fulfilled" &&
+        osm.length < MIN_LOCAL_RESULTS
+      ) {
+        try {
+          const wider = await fetchOsmPlaces(lat, lon, groupKeys, WIDEN_SCALE);
+          if (requestId !== requestRef.current) return;
+          if (wider.length > osm.length) osm = wider;
+        } catch (err) {
+          console.error("Wider search error:", err);
+        }
       }
 
       const best = pickBest(mergePlaces(osm, wiki), selectedCategory);
@@ -1027,7 +1100,8 @@ export default function DestinationMap({
           "Could not get your location. Allow location access in your browser and try again.",
         );
       },
-      { timeout: 12000 },
+      // High accuracy gives your real spot, not just your town
+      { timeout: 15000, enableHighAccuracy: true, maximumAge: 60000 },
     );
   }
 
@@ -1354,8 +1428,9 @@ export default function DestinationMap({
 
       <p className="ex-note">
         Map data © OpenStreetMap contributors. Photos and descriptions come from
-        Wikipedia when available. A star marks well-known places. Contact
-        details show only where the map data has them.
+        Wikipedia when available. A star marks well-known places. Hotels, food
+        and essentials are ranked by how close they are and how complete their
+        details are. Contact details show only where the map data has them.
       </p>
     </div>
   );

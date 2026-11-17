@@ -80,6 +80,119 @@ const IconTrash = () => (
   </MenuIcon>
 );
 
+// ----- Professional line icons for the login / sign-up forms -----
+const UI_ICON_PATHS = {
+  user: (
+    <>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="2" y="4" width="20" height="16" rx="3" />
+      <path d="m22 7-10 6L2 7" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="3" y="11" width="18" height="11" rx="3" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-6.5 0-10-7-10-7a18.5 18.5 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19" />
+      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+      <path d="m1 1 22 22" />
+    </>
+  ),
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </>
+  ),
+  check: <polyline points="20 6 9 17 4 12" />,
+  x: (
+    <>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </>
+  ),
+  users: (
+    <>
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+};
+
+function UiIcon({ name, size = 18 }) {
+  return (
+    <svg
+      className="ui-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {UI_ICON_PATHS[name]}
+    </svg>
+  );
+}
+
+// Animated tick used on the success screens
+function SuccessCheck() {
+  return (
+    <div className="success-check">
+      <svg viewBox="0 0 52 52" aria-hidden="true">
+        <circle className="success-circle" cx="26" cy="26" r="23" />
+        <path className="success-tick" d="M15 27l8 8 15-17" />
+      </svg>
+    </div>
+  );
+}
+
+function FormError({ children }) {
+  return (
+    <p className="form-error">
+      <UiIcon name="alert" size={16} />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+function MatchNote({ ok }) {
+  return (
+    <p className={`match-note ${ok ? "ok" : "bad"}`}>
+      <UiIcon name={ok ? "check" : "x"} size={14} />
+      {ok ? "Passwords match" : "Passwords don't match yet"}
+    </p>
+  );
+}
+
 // Works for old rows (full public URL) and new rows (just the file name)
 function getPath(imageUrl) {
   if (!imageUrl) return null;
@@ -790,6 +903,14 @@ function App() {
   const myId = session?.user?.id;
   const myName =
     session?.user?.user_metadata?.full_name || session?.user?.email || "Member";
+
+  // The admin can delete anything. Everyone else can delete only the
+  // photos and videos that they uploaded themselves.
+  function canDeleteMemory(memory) {
+    if (!session) return false;
+    if (isDeveloper) return true;
+    return Boolean(memory.user_id) && memory.user_id === myId;
+  }
 
   useEffect(() => {
     if (!myId) return;
@@ -1509,6 +1630,8 @@ function App() {
       imagePath = path;
     }
 
+    // user_id remembers who uploaded this memory, so only they
+    // (and the admin) can delete it later
     const { data, error } = await supabase
       .from("memories")
       .insert({
@@ -1517,6 +1640,7 @@ function App() {
         image_url: imagePath,
         memory_date: memoryDate,
         media_type: mediaType,
+        user_id: myId,
       })
       .select()
       .single();
@@ -1562,11 +1686,23 @@ function App() {
   }
 
   async function handleDeleteMemory(id) {
-    if (!window.confirm("Delete this memory?")) return;
-
     const memory = memories.find((m) => m.id === id);
 
-    const { error } = await supabase.from("memories").delete().eq("id", id);
+    // Safety check in the page (the database enforces the same rule)
+    if (!memory || !canDeleteMemory(memory)) {
+      alert("You can only delete the photos and videos you uploaded.");
+      return;
+    }
+
+    if (!window.confirm("Delete this memory?")) return;
+
+    // .select() returns the deleted rows, so we can tell when the
+    // database refused to delete anything
+    const { data: deletedRows, error } = await supabase
+      .from("memories")
+      .delete()
+      .eq("id", id)
+      .select();
 
     if (error) {
       console.error("Delete error:", error);
@@ -1574,8 +1710,13 @@ function App() {
       return;
     }
 
+    if (!deletedRows || deletedRows.length === 0) {
+      alert("This memory could not be deleted. It may not be yours.");
+      return;
+    }
+
     // Also remove the file so storage doesn't fill up
-    const path = memory ? getPath(memory.image_url) : null;
+    const path = getPath(memory.image_url);
     if (path) {
       const { error: removeError } = await supabase.storage
         .from(BUCKET)
@@ -2580,18 +2721,15 @@ function App() {
                           required
                         />
 
-                        {loginNotice && (
-                          <p
-                            className={
-                              loginNotice.type === "info"
-                                ? "form-info"
-                                : "form-error"
-                            }
-                          >
-                            {loginNotice.type === "info" ? "📧" : "⚠️"}{" "}
-                            {loginNotice.text}
-                          </p>
-                        )}
+                        {loginNotice &&
+                          (loginNotice.type === "info" ? (
+                            <p className="form-info">
+                              <UiIcon name="mail" size={16} />
+                              <span>{loginNotice.text}</span>
+                            </p>
+                          ) : (
+                            <FormError>{loginNotice.text}</FormError>
+                          ))}
 
                         {needsConfirm && (
                           <button
@@ -2653,9 +2791,7 @@ function App() {
                           autoFocus
                         />
 
-                        {resetError && (
-                          <p className="form-error">⚠️ {resetError}</p>
-                        )}
+                        {resetError && <FormError>{resetError}</FormError>}
 
                         <button type="submit" disabled={resetBusy}>
                           {resetBusy ? "Sending..." : "Send Code"}
@@ -2695,9 +2831,7 @@ function App() {
                           autoFocus
                         />
 
-                        {resetError && (
-                          <p className="form-error">⚠️ {resetError}</p>
-                        )}
+                        {resetError && <FormError>{resetError}</FormError>}
 
                         <button type="submit" disabled={resetBusy}>
                           {resetBusy ? "Checking..." : "Verify Code"}
@@ -2754,7 +2888,7 @@ function App() {
                               showNewPw ? "Hide password" : "Show password"
                             }
                           >
-                            {showNewPw ? "🙈" : "👁️"}
+                            <UiIcon name={showNewPw ? "eyeOff" : "eye"} />
                           </button>
                         </div>
 
@@ -2767,18 +2901,10 @@ function App() {
                         />
 
                         {newConfirm && (
-                          <p
-                            className={`match-note ${newConfirm === newPassword ? "ok" : "bad"}`}
-                          >
-                            {newConfirm === newPassword
-                              ? "✓ Passwords match"
-                              : "✗ Passwords don't match yet"}
-                          </p>
+                          <MatchNote ok={newConfirm === newPassword} />
                         )}
 
-                        {resetError && (
-                          <p className="form-error">⚠️ {resetError}</p>
-                        )}
+                        {resetError && <FormError>{resetError}</FormError>}
 
                         <button type="submit" disabled={resetBusy}>
                           {resetBusy ? "Saving..." : "Update Password"}
@@ -2796,7 +2922,7 @@ function App() {
                   {/* 5. Done */}
                   {loginMode === "reset-done" && (
                     <div className="signup-success">
-                      <div className="signup-success-icon">✅</div>
+                      <SuccessCheck />
                       <h4>Password updated</h4>
                       <p>
                         Your password was changed. You can log in with it now.
@@ -2836,17 +2962,35 @@ function App() {
                 <div className="signup-dropdown">
                   {signupDone ? (
                     <div className="signup-success">
-                      <div className="signup-success-icon">🎉</div>
+                      <SuccessCheck />
                       <h4>You're almost in!</h4>
                       <p>
                         Your account is created. Check your inbox (and spam
                         folder) for a confirmation email, click the link in it,
                         then log in.
                       </p>
-                      <p>
-                        The admin will approve you soon, and then you can open
-                        our memories.
-                      </p>
+
+                      <ul className="signup-steps">
+                        <li>
+                          <span className="signup-step-icon">
+                            <UiIcon name="mail" size={16} />
+                          </span>
+                          Confirm your email
+                        </li>
+                        <li>
+                          <span className="signup-step-icon">
+                            <UiIcon name="shield" size={16} />
+                          </span>
+                          Wait for the admin to approve you
+                        </li>
+                        <li>
+                          <span className="signup-step-icon">
+                            <UiIcon name="users" size={16} />
+                          </span>
+                          Join the gang and open our memories
+                        </li>
+                      </ul>
+
                       <button
                         type="button"
                         className="signup-success-btn"
@@ -2862,29 +3006,50 @@ function App() {
                     </div>
                   ) : (
                     <>
-                      <h4>Join the gang</h4>
-                      <p className="login-sub">
-                        Create your account in a few seconds.
-                      </p>
+                      <div className="signup-head">
+                        <span className="signup-badge">
+                          <UiIcon name="users" size={22} />
+                        </span>
+                        <div>
+                          <h4>Join the gang</h4>
+                          <p className="login-sub">
+                            Create your account in a few seconds.
+                          </p>
+                        </div>
+                      </div>
 
                       <form className="signup-form" onSubmit={handleSignup}>
-                        <input
-                          type="text"
-                          placeholder="Full name"
-                          value={signupName}
-                          onChange={(e) => setSignupName(e.target.value)}
-                          required
-                          autoFocus
-                        />
-                        <input
-                          type="email"
-                          placeholder="Email"
-                          value={signupEmail}
-                          onChange={(e) => setSignupEmail(e.target.value)}
-                          required
-                        />
+                        <div className="su-field">
+                          <span className="su-icon">
+                            <UiIcon name="user" />
+                          </span>
+                          <input
+                            type="text"
+                            placeholder="Full name"
+                            value={signupName}
+                            onChange={(e) => setSignupName(e.target.value)}
+                            required
+                            autoFocus
+                          />
+                        </div>
 
-                        <div className="password-field">
+                        <div className="su-field">
+                          <span className="su-icon">
+                            <UiIcon name="mail" />
+                          </span>
+                          <input
+                            type="email"
+                            placeholder="Email address"
+                            value={signupEmail}
+                            onChange={(e) => setSignupEmail(e.target.value)}
+                            required
+                          />
+                        </div>
+
+                        <div className="password-field su-field">
+                          <span className="su-icon">
+                            <UiIcon name="lock" />
+                          </span>
                           <input
                             type={showPassword ? "text" : "password"}
                             placeholder="Password (min 8 characters)"
@@ -2900,7 +3065,7 @@ function App() {
                               showPassword ? "Hide password" : "Show password"
                             }
                           >
-                            {showPassword ? "🙈" : "👁️"}
+                            <UiIcon name={showPassword ? "eyeOff" : "eye"} />
                           </button>
                         </div>
 
@@ -2922,22 +3087,21 @@ function App() {
                           </div>
                         )}
 
-                        <input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Confirm password"
-                          value={signupConfirm}
-                          onChange={(e) => setSignupConfirm(e.target.value)}
-                          required
-                        />
+                        <div className="su-field">
+                          <span className="su-icon">
+                            <UiIcon name="shield" />
+                          </span>
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Confirm password"
+                            value={signupConfirm}
+                            onChange={(e) => setSignupConfirm(e.target.value)}
+                            required
+                          />
+                        </div>
 
                         {signupConfirm && (
-                          <p
-                            className={`match-note ${signupConfirm === signupPassword ? "ok" : "bad"}`}
-                          >
-                            {signupConfirm === signupPassword
-                              ? "✓ Passwords match"
-                              : "✗ Passwords don't match yet"}
-                          </p>
+                          <MatchNote ok={signupConfirm === signupPassword} />
                         )}
 
                         <label className="agree-row">
@@ -2947,18 +3111,30 @@ function App() {
                             onChange={(e) => setAgree(e.target.checked)}
                             required
                           />
+                          <span className="agree-box">
+                            <UiIcon name="check" size={13} />
+                          </span>
                           <span>
                             I'll keep our memories private and only share them
                             with the gang.
                           </span>
                         </label>
 
-                        {signupError && (
-                          <p className="form-error">⚠️ {signupError}</p>
-                        )}
+                        {signupError && <FormError>{signupError}</FormError>}
 
-                        <button type="submit" disabled={signingUp}>
-                          {signingUp ? "Creating account..." : "Create Account"}
+                        <button
+                          type="submit"
+                          className="su-submit"
+                          disabled={signingUp}
+                        >
+                          {signingUp ? (
+                            <>
+                              <span className="btn-spinner" /> Creating
+                              account...
+                            </>
+                          ) : (
+                            "Create Account"
+                          )}
                         </button>
                       </form>
 
@@ -3254,7 +3430,8 @@ function App() {
                                 <IconDownload /> Download
                               </button>
                             )}
-                            {isDeveloper && (
+                            {/* Admin: any memory. Members: only their own. */}
+                            {canDeleteMemory(memory) && (
                               <button
                                 type="button"
                                 className="danger"
