@@ -6137,3 +6137,284 @@ footer {
 .signup-success-icon {
   display: none;
 }
+.live-page {
+  max-width: 1280px;
+  margin: 90px auto 0;
+  padding: 0 24px;
+  scroll-margin-top: 100px;
+}
+
+.livemap {
+  padding: 30px;
+  border: 1px solid transparent;
+  border-radius: 30px;
+  background:
+    linear-gradient(160deg, #1d1b22, #141317) padding-box,
+    linear-gradient(135deg, #ff9f43, #ff4d8d, #7a5cff) border-box;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+  text-align: left;
+}
+
+.livemap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.livemap-head h3 {
+  margin: 0 0 4px;
+  font-size: 30px;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.livemap-head p {
+  margin: 0;
+  max-width: 560px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.livemap-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px 8px 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: var(--glass);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.25s ease;
+}
+.livemap-switch:hover {
+  transform: translateY(-2px);
+}
+.livemap-knob {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.3s ease;
+}
+.livemap-knob::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.livemap-switch.on {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 30px rgba(34, 197, 94, 0.25);
+}
+.livemap-switch.on .livemap-knob {
+  background: #22c55e;
+}
+.livemap-switch.on .livemap-knob::after {
+  transform: translateX(18px);
+}
+
+.livemap-error {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 92, 92, 0.45);
+  border-radius: 12px;
+  background: rgba(255, 92, 92, 0.1);
+  font-size: 13px;
+  color: #ff9a9a;
+}
+
+.livemap-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: stretch;
+}
+.livemap-map {
+  height: 520px;
+  overflow: hidden;
+  border: 4px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  background: #e8e4dc;
+}
+
+.livemap-side {
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass);
+}
+.livemap-side-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  color: var(--text-soft);
+}
+.livemap-side-head strong {
+  font-size: 22px;
+  color: #22c55e;
+}
+.livemap-side-head button {
+  margin-left: auto;
+  padding: 6px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.livemap-side-head button:hover {
+  background: var(--gradient);
+}
+.livemap-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.livemap-side ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.livemap-side li button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: #fff;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.livemap-side li button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.livemap-side li strong {
+  display: block;
+  font-size: 15px;
+}
+.livemap-side li small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.livemap-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--gradient);
+  font-weight: 700;
+}
+
+.livemap-note {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.live-marker {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+}
+.live-marker-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(255, 77, 141, 0.35);
+  animation: markerPulse 2s ease-out infinite;
+}
+.live-marker.me .live-marker-pulse {
+  background: rgba(34, 197, 94, 0.4);
+}
+.live-marker-avatar {
+  position: absolute;
+  inset: 5px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--gradient);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+.live-marker.me .live-marker-avatar {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+.live-marker-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-top: 4px;
+  padding: 2px 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(20, 19, 23, 0.9);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@keyframes markerPulse {
+  from {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .livemap {
+    padding: 20px;
+  }
+  .livemap-layout {
+    grid-template-columns: 1fr;
+  }
+  .livemap-map {
+    height: 420px;
+  }
+  .livemap-side {
+    max-height: none;
+  }
+}
