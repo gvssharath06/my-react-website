@@ -1,9 +1,1921 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useId } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
 import { supabase } from "./utils/supabase";
 import "./App.css";
 import "leaflet/dist/leaflet.css";
-import DestinationMap from "./DestinationMap";
+// Marker pictures that ship with the leaflet package
+import markerIconPng from "leaflet/dist/images/marker-icon.png";
+import markerIcon2xPng from "leaflet/dist/images/marker-icon-2x.png";
+import markerShadowPng from "leaflet/dist/images/marker-shadow.png";
 
+// =====================================================================
+// ICONS (small stroke icons used instead of emojis)
+// Usage: <Icon name="mail" size={18} />
+// =====================================================================
+// Small stroke-icon set (24x24) used instead of emojis.
+// Usage: <Icon name="mail" size={18} />
+const PATHS = {
+  user: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" />
+      <path d="M16 4.7a3.5 3.5 0 0 1 0 6.6" />
+      <path d="M18 14.3c2.2.7 3.5 2.6 3.5 5.7" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="m3.5 7 8.5 6.5L20.5 7" />
+    </>
+  ),
+  "mail-check": (
+    <>
+      <path d="M21 11V7.5A2.5 2.5 0 0 0 18.5 5h-13A2.5 2.5 0 0 0 3 7.5v9A2.5 2.5 0 0 0 5.5 19H13" />
+      <path d="m3.5 7 8.5 6.5L20.5 7" />
+      <path d="m16 18 2 2 4-4" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+      <path d="M12 14.5v2.5" />
+    </>
+  ),
+  "shield-check": (
+    <>
+      <path d="M12 3 4.5 6v5.5c0 4.5 3.1 8 7.5 9.5 4.4-1.5 7.5-5 7.5-9.5V6L12 3Z" />
+      <path d="m8.8 12 2.2 2.2 4.2-4.4" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  "eye-off": (
+    <>
+      <path d="M10.6 5.6A10 10 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17 17 0 0 1-3.2 4" />
+      <path d="M6.6 7A16.6 16.6 0 0 0 2 12s3.6 6.5 10 6.5c1.7 0 3.2-.4 4.5-1" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="m3 3 18 18" />
+    </>
+  ),
+  check: <path d="m4.5 12.5 5 5 10-11" />,
+  x: <path d="M6 6l12 12M18 6 6 18" />,
+  alert: (
+    <>
+      <path d="M12 3.5 2.5 20h19L12 3.5Z" />
+      <path d="M12 10v4.5" />
+      <path d="M12 17.4v.1" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 7.9v.1" />
+    </>
+  ),
+  compass: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m20 20-4.2-4.2" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21Z" />
+      <circle cx="12" cy="9.5" r="2.5" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="4" y="4" width="6.5" height="6.5" rx="1.5" />
+      <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+      <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" />
+      <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
+    </>
+  ),
+  temple: (
+    <>
+      <path d="M12 3v2.5" />
+      <path d="M7 10c0-2.8 2.2-4.5 5-4.5s5 1.7 5 4.5" />
+      <path d="M4.5 10h15" />
+      <path d="M6.5 10v9M17.5 10v9M10 14v5M14 14v5" />
+      <path d="M3.5 19h17" />
+    </>
+  ),
+  landmark: (
+    <>
+      <path d="M3 9.5 12 4l9 5.5" />
+      <path d="M4.5 9.5h15" />
+      <path d="M6 12v6M10 12v6M14 12v6M18 12v6" />
+      <path d="M3.5 20h17" />
+    </>
+  ),
+  mountain: (
+    <>
+      <path d="m2.5 19 6.5-11 4 6.5 2.5-3.5 6 8H2.5Z" />
+      <path d="m7.3 11.5 1.7 1 1.5-1" />
+    </>
+  ),
+  bed: (
+    <>
+      <path d="M3 18.5V6" />
+      <path d="M3 14h18v4.5" />
+      <path d="M21 14v-1.5A3.5 3.5 0 0 0 17.5 9H11v5" />
+      <circle cx="7" cy="11" r="1.8" />
+    </>
+  ),
+  utensils: (
+    <>
+      <path d="M6 3v7a2 2 0 0 0 2 2v9" />
+      <path d="M10 3v7a2 2 0 0 1-2 2" />
+      <path d="M8 3v5" />
+      <path d="M17 21V3c-2.2 1.6-3.5 4-3.5 7 0 1.7.9 2.8 2.2 3" />
+    </>
+  ),
+  medical: (
+    <>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
+      <path d="M12 8v8M8 12h8" />
+    </>
+  ),
+  chat: (
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4h0A2.5 2.5 0 0 1 4 13.5v-8Z" />
+  ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  trash: (
+    <>
+      <path d="M4 6.5h16" />
+      <path d="M9.5 6.5V4.5h5v2" />
+      <path d="M6 6.5 7 20h10l1-13.5" />
+      <path d="M10 10.5v6M14 10.5v6" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v11" />
+      <path d="m7.5 11 4.5 4.5 4.5-4.5" />
+      <path d="M4.5 19.5h15" />
+    </>
+  ),
+  phone: (
+    <path d="M6.5 3.5h3l1.5 4-2 1.5a11 11 0 0 0 5.5 5.5l1.5-2 4 1.5v3a2 2 0 0 1-2 2A15.5 15.5 0 0 1 4.5 5.5a2 2 0 0 1 2-2Z" />
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3Z" />
+    </>
+  ),
+  directions: (
+    <>
+      <path d="M12 3 21 12l-9 9-9-9 9-9Z" />
+      <path d="M8.5 13.5V11a1.5 1.5 0 0 1 1.5-1.5h5" />
+      <path d="m13.5 7.5 2 2-2 2" />
+    </>
+  ),
+  map: (
+    <>
+      <path d="m3 6.5 6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5V6.5Z" />
+      <path d="M9 4v13.5M15 6.5V20" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H12v16H5.5A1.5 1.5 0 0 1 4 18.5v-13Z" />
+      <path d="M12 4h6.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H12" />
+    </>
+  ),
+  star: (
+    <path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9L12 3.5Z" />
+  ),
+  coffee: (
+    <>
+      <path d="M5 8.5h11v5.5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V8.5Z" />
+      <path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16" />
+      <path d="M8 3.5v2M11 3.5v2M14 3.5v2" />
+    </>
+  ),
+  locate: (
+    <>
+      <circle cx="12" cy="12" r="3.2" />
+      <circle cx="12" cy="12" r="7.5" />
+      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+    </>
+  ),
+  "arrow-right": (
+    <>
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </>
+  ),
+  "user-plus": (
+    <>
+      <circle cx="9" cy="8" r="3.8" />
+      <path d="M2.5 20c0-3.7 2.9-6 6.5-6s6.5 2.3 6.5 6" />
+      <path d="M19 8v6M16 11h6" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 8.5-8.5" />
+      <path d="m16 7 2.5 2.5" />
+    </>
+  ),
+};
+
+function Icon({ name, size = 18, className = "", strokeWidth = 1.8 }) {
+  const body = PATHS[name];
+  if (!body) return null;
+  return (
+    <svg
+      className={`icon ${className}`.trim()}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {body}
+    </svg>
+  );
+}
+
+// =====================================================================
+// SIGN-UP HELPERS
+// =====================================================================
+
+// Only real, well-formed email addresses are accepted. A person who forgets
+// the password gets a verification code at this address, so it has to work.
+const EMAIL_PATTERN =
+  /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
+
+// Typos in popular email providers
+const EMAIL_TYPOS = {
+  "gmail.con": "gmail.com",
+  "gmail.co": "gmail.com",
+  "gmail.cm": "gmail.com",
+  "gmail.om": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "gamil.com": "gmail.com",
+  "gnail.com": "gmail.com",
+  "gmil.com": "gmail.com",
+  "gmaill.com": "gmail.com",
+  "yaho.com": "yahoo.com",
+  "yahooo.com": "yahoo.com",
+  "yahoo.con": "yahoo.com",
+  "hotmial.com": "hotmail.com",
+  "hotmail.con": "hotmail.com",
+  "outlok.com": "outlook.com",
+  "outlook.con": "outlook.com",
+};
+
+// Throw-away inboxes that nobody reads
+const DISPOSABLE_DOMAINS = [
+  "mailinator.com",
+  "10minutemail.com",
+  "guerrillamail.com",
+  "tempmail.com",
+  "temp-mail.org",
+  "yopmail.com",
+  "trashmail.com",
+  "sharklasers.com",
+  "getnada.com",
+  "dispostable.com",
+  "maildrop.cc",
+  "throwawaymail.com",
+  "fakeinbox.com",
+  "mintemail.com",
+  "mohmal.com",
+  "tempail.com",
+];
+
+// Returns a message when the email is not usable, or "" when it is fine
+function getEmailProblem(value) {
+  const email = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!email) return "Please enter your email.";
+
+  const [local = "", domain = ""] = email.split("@");
+
+  if (
+    email.length > 254 ||
+    !EMAIL_PATTERN.test(email) ||
+    email.includes("..") ||
+    local.startsWith(".") ||
+    local.endsWith(".")
+  ) {
+    return "That doesn't look like a valid email address.";
+  }
+
+  if (EMAIL_TYPOS[domain]) {
+    return `Did you mean ${local}@${EMAIL_TYPOS[domain]}?`;
+  }
+
+  if (DISPOSABLE_DOMAINS.includes(domain)) {
+    return "Temporary email addresses can't be used. Please use your real email.";
+  }
+
+  return "";
+}
+
+// Floating-label input with a leading icon, used by every login / sign-up form
+function AuthField({
+  icon,
+  label,
+  type = "text",
+  value,
+  onChange,
+  onBlur,
+  autoFocus = false,
+  autoComplete,
+  inputMode,
+  maxLength,
+  required = false,
+  status = "",
+  index = 0,
+  right = null,
+  className = "",
+}) {
+  const id = useId();
+
+  return (
+    <div
+      className={`su-field${status ? ` is-${status}` : ""}${className ? ` ${className}` : ""}`}
+      style={{ "--i": index }}
+    >
+      <span className="su-ico">
+        <Icon name={icon} size={18} />
+      </span>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={onChange}
+        onBlur={onBlur}
+        placeholder=" "
+        autoFocus={autoFocus}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
+        maxLength={maxLength}
+        required={required}
+      />
+      <label htmlFor={id}>{label}</label>
+      {right}
+    </div>
+  );
+}
+
+// A small note under a form: error (red) or info (green)
+function AuthNote({ type = "error", children }) {
+  return (
+    <p className={`auth-note ${type === "info" ? "ok" : "bad"}`} role="status">
+      <Icon name={type === "info" ? "mail-check" : "alert"} size={16} />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+// Animated tick drawn when something worked
+function SuccessMark() {
+  return (
+    <span className="su-check">
+      <svg viewBox="0 0 52 52" aria-hidden="true">
+        <circle className="su-check-circle" cx="26" cy="26" r="24" />
+        <path className="su-check-mark" d="M14 27l8 8 16-17" />
+      </svg>
+    </span>
+  );
+}
+
+// =====================================================================
+// EXPLORE A DESTINATION
+// Finds temples, hills, hotels, food spots and essentials around a place
+// (or around the person's current location), best ones first.
+// =====================================================================
+
+// Marker pictures that ship with the leaflet package
+const markerIcon = new L.Icon({
+  iconUrl: markerIconPng,
+  iconRetinaUrl: markerIcon2xPng,
+  shadowUrl: markerShadowPng,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// Free map servers. If one is busy, the next one is tried automatically
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
+const PHOTON_URL = "https://photon.komoot.io/api/";
+const PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse";
+const WIKI_API = "https://en.wikipedia.org/w/api.php";
+const WIKI_RADIUS_METERS = 10000; // Wikipedia allows 10 km at most
+const DEFAULT_CENTER = [12.127, 78.157]; // Dharmapuri
+const SEARCH_COUNTRY = "IN"; // use "" to search worldwide
+const MAX_PLACES = 36; // spots shown for one category
+const MAX_ALL = 48; // spots shown for "All" (a mix of every kind)
+const MAX_ENRICH = 12; // places that get a Wikipedia photo + description
+const CACHE_MS = 10 * 60 * 1000; // remember a search for 10 minutes
+const OVERPASS_TIMEOUT_MS = 20000; // stop waiting for the map servers after this
+const OVERPASS_HEDGE_MS = 1500; // ask the next server if one is this slow
+const WIKI_WAIT_MS = 2500; // wait this long at most for Wikipedia photos
+const placeCache = new Map();
+
+// Cache helpers live outside the component because reading the clock is not
+// allowed while a component renders
+function readPlaceCache(key) {
+  const hit = placeCache.get(key);
+  return hit && Date.now() - hit.time < CACHE_MS ? hit.places : null;
+}
+
+function writePlaceCache(key, places) {
+  placeCache.set(key, { time: Date.now(), places });
+}
+
+// ----- What we look for, grouped by kind of place -----
+// radii = how far from the centre to look (metres). When too few places are
+// found, the search automatically widens to the next distance.
+// min = how many places we want before we stop widening.
+const GROUPS = {
+  sights: {
+    radii: [15000, 30000],
+    min: 4,
+    sets: ['["tourism"~"attraction|zoo|theme_park|aquarium"]'],
+  },
+  historical: {
+    radii: [15000, 30000],
+    min: 4,
+    sets: ['["historic"]', '["tourism"~"museum|gallery"]'],
+  },
+  hills: {
+    radii: [15000, 30000],
+    min: 5,
+    sets: [
+      '["natural"~"peak|hill|cave_entrance|hot_spring|spring|beach|waterfall"]',
+      '["waterway"="waterfall"]',
+      '["tourism"~"viewpoint|picnic_site|camp_site"]',
+      '["leisure"~"nature_reserve|park|garden|water_park"]',
+      '["boundary"="protected_area"]',
+    ],
+  },
+  temples: {
+    radii: [6000, 12000, 20000],
+    min: 8,
+    sets: ['["amenity"="place_of_worship"]'],
+  },
+  stay: {
+    radii: [4000, 10000, 20000],
+    min: 8,
+    sets: [
+      '["tourism"~"hotel|resort|guest_house|hostel|motel|apartment|chalet"]',
+    ],
+  },
+  restaurants: {
+    radii: [3000, 7000, 15000],
+    min: 8,
+    sets: ['["amenity"~"restaurant|food_court"]'],
+  },
+  food: {
+    radii: [3000, 7000, 15000],
+    min: 8,
+    sets: [
+      '["amenity"~"cafe|fast_food|ice_cream|juice_bar"]',
+      '["shop"~"bakery|confectionery|sweets"]',
+    ],
+  },
+  essentials: {
+    radii: [4000, 10000],
+    min: 6,
+    sets: [
+      '["amenity"~"hospital|pharmacy|atm|fuel|bus_station|police"]',
+      '["railway"="station"]',
+    ],
+  },
+};
+
+// The order used to mix kinds together in the "All" list
+const GROUP_ORDER = [
+  "sights",
+  "hills",
+  "temples",
+  "historical",
+  "stay",
+  "restaurants",
+  "food",
+  "essentials",
+];
+
+// Places people look for near where they are: closeness matters more
+const GROUP_DISTANCE_WEIGHT = {
+  stay: 0.5,
+  restaurants: 0.5,
+  food: 0.5,
+  essentials: 0.5,
+  temples: 0.2,
+  historical: 0.1,
+  sights: 0.1,
+  hills: 0.05,
+};
+
+const EXPLORE_CATEGORIES = {
+  all: { label: "All", icon: "grid", plural: "spots", groups: GROUP_ORDER },
+  temples: {
+    label: "Temples",
+    icon: "temple",
+    plural: "temples",
+    groups: ["temples"],
+  },
+  historical: {
+    label: "Historical",
+    icon: "landmark",
+    plural: "historical places",
+    groups: ["historical", "sights"],
+  },
+  hills: {
+    label: "Nature & Hills",
+    icon: "mountain",
+    plural: "nature spots",
+    groups: ["hills"],
+  },
+  stay: {
+    label: "Hotels",
+    icon: "bed",
+    plural: "hotels and stays",
+    groups: ["stay"],
+  },
+  food: {
+    label: "Food & Cafés",
+    icon: "utensils",
+    plural: "places to eat",
+    groups: ["restaurants", "food"],
+  },
+  essentials: {
+    label: "Essentials",
+    icon: "medical",
+    plural: "essentials",
+    groups: ["essentials"],
+  },
+};
+
+const GROUP_ICON_NAMES = {
+  sights: "compass",
+  historical: "landmark",
+  hills: "mountain",
+  temples: "temple",
+  stay: "bed",
+  restaurants: "utensils",
+  food: "coffee",
+  essentials: "medical",
+};
+
+const GROUP_BLURB = {
+  sights: "A popular sightseeing spot.",
+  historical: "A place with history worth visiting.",
+  hills: "A scenic spot for nature lovers.",
+  temples: "A place of worship to visit.",
+  stay: "A place to stay for the night.",
+  restaurants: "A place to sit down and eat.",
+  food: "A quick bite, a coffee or a sweet treat.",
+  essentials: "Useful to know about during your trip.",
+};
+
+// Which "group" a Wikipedia article belongs to
+const WIKI_CATEGORY_GROUP = {
+  waterfall: "hills",
+  peak: "hills",
+  beach: "hills",
+  park: "hills",
+  lake: "hills",
+  cave_entrance: "hills",
+  viewpoint: "hills",
+  place_of_worship: "temples",
+  fort: "historical",
+  castle: "historical",
+  monument: "historical",
+  museum: "historical",
+};
+
+// Wikipedia also lists villages, schools etc. Those are not tourist spots
+const NOT_A_SPOT =
+  /village|town|panchayat|census|taluk|tehsil|district|municipal|city|constituency|school|college|universit|railway|station|hospital|mandal|hamlet|locality|suburb|neighbo|company|politician|actor|film/i;
+
+// ----- Helpers -----
+function prettyCategory(category) {
+  if (category === "atm") return "ATM";
+  const text = String(category || "attraction").replace(/_/g, " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function truncate(text, max) {
+  if (!text || text.length <= max) return text || "";
+  return text.slice(0, max).replace(/\s+\S*$/, "") + "…";
+}
+
+// Same place under slightly different names ("Hogenakkal Falls" / "Hogenakkal")
+function nameKey(name) {
+  const key = name
+    .toLowerCase()
+    .replace(/\b(falls?|waterfalls?|temple|fort|the|sri|sree|arulmigu)\b/g, "")
+    .replace(/[^a-z0-9]/g, "");
+  return key || name.toLowerCase();
+}
+
+// Listings with more detail (stars, phone, website, hours, Wikipedia ...)
+// are almost always the better known, better kept places
+function notabilityScore(tags) {
+  let score = 0;
+  if (tags.wikipedia) score += 5;
+  if (tags.wikidata) score += 3;
+  if (tags.wikimedia_commons || tags.image) score += 2;
+  if (tags.tourism === "attraction") score += 2;
+  if (tags.waterway === "waterfall" || tags.natural === "waterfall") score += 2;
+  if (tags.boundary === "protected_area") score += 1;
+
+  const stars = parseFloat(tags.stars);
+  if (stars >= 4) score += 2.5;
+  else if (stars >= 3) score += 1.5;
+  else if (stars > 0) score += 0.5;
+
+  if (
+    tags.website ||
+    tags["contact:website"] ||
+    tags["contact:facebook"] ||
+    tags["contact:instagram"]
+  )
+    score += 1;
+  if (tags.phone || tags["contact:phone"] || tags["contact:mobile"]) score += 1;
+  if (tags.opening_hours) score += 0.8;
+  if (tags.cuisine) score += 0.7;
+  if (tags.brand || tags.operator) score += 0.5;
+  if (tags.internet_access === "wlan" || tags.internet_access === "yes")
+    score += 0.4;
+  if (tags.air_conditioning === "yes") score += 0.3;
+  if (tags.rooms) score += 0.3;
+  if (tags["addr:street"] || tags["addr:full"]) score += 0.3;
+  if (tags.description || tags["description:en"]) score += 0.7;
+  return score;
+}
+
+// Photo straight from the OpenStreetMap tags (if any)
+function tagPhoto(tags) {
+  const commons = tags.wikimedia_commons;
+  if (commons && /^File:/i.test(commons)) {
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(
+      commons.replace(/^File:/i, ""),
+    )}?width=500`;
+  }
+  if (tags.image && /^https?:\/\//i.test(tags.image)) return tags.image;
+  return null;
+}
+
+function osmLink(lat, lon) {
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
+}
+
+// Decide which group an OpenStreetMap place belongs to
+function groupOf(tags) {
+  const tourism = tags.tourism || "";
+  const amenity = tags.amenity || "";
+  const shop = tags.shop || "";
+
+  if (amenity === "place_of_worship") return "temples";
+  if (
+    /^(hotel|resort|guest_house|hostel|motel|apartment|chalet)$/.test(tourism)
+  )
+    return "stay";
+  if (/^(restaurant|food_court)$/.test(amenity)) return "restaurants";
+  if (
+    /^(cafe|fast_food|ice_cream|juice_bar)$/.test(amenity) ||
+    /^(bakery|confectionery|sweets)$/.test(shop)
+  )
+    return "food";
+  if (
+    /^(hospital|pharmacy|atm|fuel|bus_station|police)$/.test(amenity) ||
+    tags.railway === "station"
+  )
+    return "essentials";
+  if (
+    tags.natural ||
+    tags.waterway === "waterfall" ||
+    /^(viewpoint|picnic_site|camp_site)$/.test(tourism) ||
+    tags.leisure ||
+    tags.boundary === "protected_area"
+  )
+    return "hills";
+  if (tags.historic || /^(museum|gallery)$/.test(tourism)) return "historical";
+  return "sights";
+}
+
+// Short text under the name, like "Hindu temple" or "Restaurant · South indian"
+function buildLabel(group, category, tags) {
+  if (group === "temples") {
+    const names = {
+      hindu: "Hindu temple",
+      jain: "Jain temple",
+      buddhist: "Buddhist temple",
+      muslim: "Mosque",
+      christian: "Church",
+      sikh: "Gurdwara",
+    };
+    return names[tags.religion] || "Place of worship";
+  }
+
+  const base = prettyCategory(category);
+
+  if (group === "stay") {
+    const stars = parseInt(tags.stars, 10);
+    return stars > 0 && stars <= 5 ? `${base} · ${stars} star` : base;
+  }
+
+  if ((group === "restaurants" || group === "food") && tags.cuisine) {
+    const cuisine = tags.cuisine
+      .split(";")
+      .slice(0, 2)
+      .map((c) => prettyCategory(c.trim()))
+      .join(", ");
+    return `${base} · ${cuisine}`;
+  }
+
+  return base;
+}
+
+function placeIconName(place) {
+  if (place.group === "essentials") {
+    return /^(hospital|pharmacy)$/.test(place.category) ? "medical" : "pin";
+  }
+  return GROUP_ICON_NAMES[place.group] || "pin";
+}
+
+function safeUrl(url) {
+  return /^https?:\/\//i.test(url || "") ? url : "";
+}
+
+// One request to the map server that covers every group that still needs it
+function buildQuery(lat, lon, requests) {
+  const blocks = requests.map(({ key, radius }) => {
+    const around = `(around:${radius},${lat},${lon})`;
+    const lines = GROUPS[key].sets
+      .map((tags) => `  nwr${around}${tags}["name"];`)
+      .join("\n");
+    return `(\n${lines}\n);\nout center tags 250;`;
+  });
+
+  return `[out:json][timeout:25];\n${blocks.join("\n")}`;
+}
+
+// Asks the map servers for places. Instead of waiting for a slow server to
+// fail before trying the next one, a second and third server join in after
+// a short delay (or at once when one fails) and the FIRST good answer wins.
+function overpass(query, firstServer = 0) {
+  const controller = new AbortController();
+  const giveUp = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+  const starters = [];
+
+  const attempts = OVERPASS_ENDPOINTS.map(
+    (_, i) =>
+      new Promise((resolve, reject) => {
+        const url =
+          OVERPASS_ENDPOINTS[(firstServer + i) % OVERPASS_ENDPOINTS.length];
+        let started = false;
+        let timer = null;
+
+        function start() {
+          if (started || controller.signal.aborted) return;
+          started = true;
+          clearTimeout(timer);
+
+          fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            },
+            body: "data=" + encodeURIComponent(query),
+            signal: controller.signal,
+          })
+            .then((response) => {
+              if (!response.ok)
+                throw new Error(`Map server ${response.status}`);
+              return response.json();
+            })
+            .then(resolve)
+            .catch((err) => {
+              reject(err);
+              // this server failed, so bring the next one in right away
+              if (starters[i + 1]) starters[i + 1]();
+            });
+        }
+
+        starters[i] = start;
+        timer = setTimeout(start, i * OVERPASS_HEDGE_MS);
+      }),
+  );
+
+  return Promise.any(attempts)
+    .catch(() => {
+      throw new Error(
+        "The map server is busy right now. Please try again in a moment.",
+      );
+    })
+    .finally(() => {
+      clearTimeout(giveUp);
+      controller.abort(); // stop the slower servers
+    });
+}
+
+// Place name suggestions while typing (Photon is made for autocomplete)
+async function photonSearch(text, limit) {
+  const response = await fetch(
+    `${PHOTON_URL}?q=${encodeURIComponent(text)}&limit=${limit}&lang=en`,
+  );
+  if (!response.ok) throw new Error("Search is not available right now.");
+
+  const data = await response.json();
+
+  return (data.features || [])
+    .filter(
+      (f) =>
+        !SEARCH_COUNTRY ||
+        (f.properties?.countrycode || "").toUpperCase() === SEARCH_COUNTRY,
+    )
+    .map((f) => {
+      const p = f.properties || {};
+      const parts = [p.name, p.district || p.county, p.state].filter(Boolean);
+      const label = [...new Set(parts)].join(", ");
+      return {
+        key: `${p.osm_type || ""}${p.osm_id || label}`,
+        name: p.name || label,
+        label,
+        lat: f.geometry.coordinates[1],
+        lon: f.geometry.coordinates[0],
+      };
+    })
+    .filter((s) => s.label);
+}
+
+// Backup when Photon has nothing or is down
+async function nominatimSearch(text) {
+  const country = SEARCH_COUNTRY
+    ? `&countrycodes=${SEARCH_COUNTRY.toLowerCase()}`
+    : "";
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=en${country}&q=${encodeURIComponent(
+      text,
+    )}`,
+  );
+  if (!response.ok) throw new Error("Could not search for this destination.");
+
+  const data = await response.json();
+  return data.map((item) => ({
+    key: String(item.place_id),
+    name: text,
+    label: item.display_name,
+    lat: Number(item.lat),
+    lon: Number(item.lon),
+  }));
+}
+
+// Photo + short description from Wikipedia (for places that have a wiki tag)
+async function fetchWikiSummary(wikipediaTag) {
+  const match = /^([a-z-]+):(.+)$/i.exec(wikipediaTag || "");
+  if (!match) return null;
+
+  const [, lang, title] = match;
+  const response = await fetch(
+    `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+      title.replace(/ /g, "_"),
+    )}`,
+  );
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  return {
+    summary: truncate(data.extract, 220),
+    photo: data.thumbnail?.source || null,
+    wikiUrl: data.content_urls?.desktop?.page || null,
+  };
+}
+
+// Work out what kind of place a Wikipedia article is about
+function guessCategory(text) {
+  const t = text.toLowerCase();
+  if (/waterfall|falls/.test(t)) return "waterfall";
+  if (/temple|shrine|church|mosque|gurdwara|place of worship/.test(t))
+    return "place_of_worship";
+  if (/\bfort\b|fortress/.test(t)) return "fort";
+  if (/palace|castle/.test(t)) return "castle";
+  if (/monument|memorial|tomb|ruins|archaeolog|heritage/.test(t))
+    return "monument";
+  if (/museum/.test(t)) return "museum";
+  if (/sanctuary|national park|wildlife|reserve|forest/.test(t)) return "park";
+  if (/\bhill|peak|mountain/.test(t)) return "peak";
+  if (/\bdam\b|reservoir|lake/.test(t)) return "lake";
+  if (/beach/.test(t)) return "beach";
+  if (/\bcave/.test(t)) return "cave_entrance";
+  if (/garden|\bpark\b/.test(t)) return "park";
+  if (/viewpoint/.test(t)) return "viewpoint";
+  return null;
+}
+
+// Well-known places near a point: Wikipedia articles with photo and text
+async function fetchWikiPlaces(lat, lon, groupKeys) {
+  const wanted = ["temples", "historical", "hills"].filter((g) =>
+    groupKeys.includes(g),
+  );
+  if (wanted.length === 0) return [];
+
+  const params = new URLSearchParams({
+    action: "query",
+    format: "json",
+    origin: "*",
+    generator: "geosearch",
+    ggscoord: `${lat}|${lon}`,
+    ggsradius: String(WIKI_RADIUS_METERS),
+    ggslimit: "40",
+    prop: "coordinates|pageimages|description|extracts",
+    exintro: "1",
+    explaintext: "1",
+    exsentences: "2",
+    exlimit: "max",
+    piprop: "thumbnail",
+    pithumbsize: "500",
+    colimit: "max",
+  });
+
+  const response = await fetch(`${WIKI_API}?${params}`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) return [];
+
+  const data = await response.json();
+  const pages = Object.values(data.query?.pages || {});
+  const result = [];
+
+  for (const page of pages) {
+    const coords = page.coordinates?.[0];
+    if (!coords) continue;
+
+    const description = page.description || "";
+    if (NOT_A_SPOT.test(description)) continue;
+
+    const guess = guessCategory(`${description} ${page.title}`);
+    if (!guess) continue;
+
+    const group = WIKI_CATEGORY_GROUP[guess] || "hills";
+    if (!wanted.includes(group)) continue;
+
+    result.push({
+      id: `wiki-${page.pageid}`,
+      name: page.title,
+      lat: coords.lat,
+      lng: coords.lon,
+      address: "",
+      rating: null,
+      group,
+      category: guess,
+      religion: "",
+      label: description
+        ? description.charAt(0).toUpperCase() + description.slice(1)
+        : prettyCategory(guess),
+      description: truncate(page.extract || description, 220),
+      phone: "",
+      hours: "",
+      website: "",
+      wikipedia: "",
+      wikiUrl: `https://en.wikipedia.org/?curid=${page.pageid}`,
+      photo: page.thumbnail?.source || null,
+      score: 6,
+      distanceKm: distanceKm(lat, lon, coords.lat, coords.lon),
+      mapsUri: osmLink(coords.lat, coords.lon),
+    });
+  }
+
+  return result;
+}
+
+// Turn one answer from the map server into places (skipping repeats)
+function addOsmPlaces(collected, data, lat, lon) {
+  for (const item of data.elements || []) {
+    const elementId = `${item.type}-${item.id}`;
+    if (collected.byId.has(elementId)) continue;
+
+    const placeLat = item.lat ?? item.center?.lat;
+    const placeLon = item.lon ?? item.center?.lon;
+    if (placeLat == null || placeLon == null) continue;
+
+    const tags = item.tags || {};
+    const name = tags["name:en"] || tags.name;
+    if (!name) continue;
+
+    const group = groupOf(tags);
+
+    // The same building can appear as a node, a way and a relation. Chains
+    // with several branches are kept, because those are far apart.
+    const key = `${group}|${nameKey(name)}`;
+    const sameName = collected.byName.get(key) || [];
+    const isRepeat = sameName.some(
+      (spot) => distanceKm(spot.lat, spot.lon, placeLat, placeLon) < 0.15,
+    );
+    if (isRepeat) continue;
+    sameName.push({ lat: placeLat, lon: placeLon });
+    collected.byName.set(key, sameName);
+
+    const rawCategory =
+      tags.tourism ||
+      tags.historic ||
+      tags.natural ||
+      tags.waterway ||
+      tags.amenity ||
+      tags.shop ||
+      tags.railway ||
+      tags.leisure ||
+      tags.boundary ||
+      "attraction";
+
+    const category =
+      group === "temples"
+        ? "place_of_worship"
+        : rawCategory === "yes"
+          ? "historic site"
+          : rawCategory;
+
+    const street = [tags["addr:housenumber"], tags["addr:street"]]
+      .filter(Boolean)
+      .join(" ");
+    const address =
+      tags["addr:full"] ||
+      [street, tags["addr:suburb"], tags["addr:city"]]
+        .filter(Boolean)
+        .join(", ");
+
+    collected.byId.set(elementId, {
+      id: elementId,
+      name,
+      lat: placeLat,
+      lng: placeLon,
+      address,
+      rating: null,
+      group,
+      category,
+      religion: tags.religion || "",
+      label: buildLabel(group, category, tags),
+      description: tags["description:en"] || tags.description || "",
+      phone:
+        tags.phone || tags["contact:phone"] || tags["contact:mobile"] || "",
+      hours: tags.opening_hours || "",
+      website: safeUrl(tags.website || tags["contact:website"]),
+      wikipedia: tags.wikipedia || "",
+      wikiUrl: null,
+      photo: tagPhoto(tags),
+      score: notabilityScore(tags),
+      distanceKm: distanceKm(lat, lon, placeLat, placeLon),
+      mapsUri: osmLink(placeLat, placeLon),
+    });
+  }
+}
+
+// Places from OpenStreetMap. Starts close to the centre and only looks
+// further away for the kinds of place that still have too few results.
+// Sights and local places are asked for in two separate, smaller requests
+// that run at the same time (each starting on a different server). Results
+// appear as soon as the first one answers instead of waiting for everything.
+const QUERY_BATCHES = [
+  ["temples", "hills", "historical", "sights"],
+  ["stay", "restaurants", "food", "essentials"],
+];
+
+async function fetchOsmPlaces(lat, lon, groupKeys, onUpdate, isStale) {
+  const collected = { byId: new Map(), byName: new Map() };
+  const batches = QUERY_BATCHES.map((batch) =>
+    batch.filter((key) => groupKeys.includes(key)),
+  ).filter((batch) => batch.length > 0);
+
+  let running = batches.length;
+  let lastError = null;
+  let answered = false;
+
+  async function runBatch(keys, firstServer) {
+    const step = {};
+    keys.forEach((key) => {
+      step[key] = 0;
+    });
+
+    let pending = keys.map((key) => ({
+      key,
+      radius: GROUPS[key].radii[0],
+    }));
+
+    try {
+      while (pending.length > 0) {
+        let data;
+        try {
+          data = await overpass(buildQuery(lat, lon, pending), firstServer);
+          answered = true;
+        } catch (err) {
+          lastError = err;
+          return;
+        }
+
+        if (isStale()) return;
+
+        addOsmPlaces(collected, data, lat, lon);
+        const list = [...collected.byId.values()];
+
+        const counts = {};
+        list.forEach((place) => {
+          counts[place.group] = (counts[place.group] || 0) + 1;
+        });
+
+        pending = [];
+        keys.forEach((key) => {
+          const next = step[key] + 1;
+          if (
+            (counts[key] || 0) < GROUPS[key].min &&
+            next < GROUPS[key].radii.length
+          ) {
+            step[key] = next;
+            pending.push({ key, radius: GROUPS[key].radii[next] });
+          }
+        });
+
+        // "more is coming" while this batch widens or another batch runs
+        onUpdate(list, pending.length > 0 || running > 1);
+      }
+    } finally {
+      running -= 1;
+    }
+  }
+
+  await Promise.all(batches.map((keys, i) => runBatch(keys, i)));
+
+  if (!answered && lastError) throw lastError;
+  return [...collected.byId.values()];
+}
+
+// Same place from both sources becomes one card with the best of each
+function mergePlaces(osmPlaces, wikiPlaces) {
+  const merged = osmPlaces.map((place) => ({ ...place }));
+
+  wikiPlaces.forEach((wiki) => {
+    const key = nameKey(wiki.name);
+    const existing = merged.find(
+      (place) =>
+        place.group === wiki.group &&
+        nameKey(place.name) === key &&
+        distanceKm(place.lat, place.lng, wiki.lat, wiki.lng) < 3,
+    );
+
+    if (existing) {
+      existing.photo = wiki.photo || existing.photo;
+      existing.description = wiki.description || existing.description;
+      existing.wikiUrl = wiki.wikiUrl;
+      existing.score = Math.max(existing.score, wiki.score);
+    } else {
+      merged.push(wiki);
+    }
+  });
+
+  return merged;
+}
+
+// Best = detailed or well-known listing, and close to where you are
+function rankValue(place) {
+  const perKm = GROUP_DISTANCE_WEIGHT[place.group] ?? 0.1;
+  return place.score - place.distanceKm * perKm;
+}
+
+function byBest(a, b) {
+  return rankValue(b) - rankValue(a) || a.distanceKm - b.distanceKm;
+}
+
+function byNearest(a, b) {
+  return a.distanceKm - b.distanceKm;
+}
+
+// "All" shows a mix: the best temple, the best hill, the best hotel ... in turn
+function pickBest(places, categoryKey, sortMode) {
+  const compare = sortMode === "near" ? byNearest : byBest;
+  const allowed = EXPLORE_CATEGORIES[categoryKey].groups;
+  const sorted = places.filter((p) => allowed.includes(p.group)).sort(compare);
+
+  if (categoryKey !== "all") return sorted.slice(0, MAX_PLACES);
+
+  const buckets = {};
+  sorted.forEach((place) => {
+    if (!buckets[place.group]) buckets[place.group] = [];
+    buckets[place.group].push(place);
+  });
+
+  const order = GROUP_ORDER.filter((group) => buckets[group]);
+  const picked = [];
+
+  for (let round = 0; picked.length < MAX_ALL; round++) {
+    let added = false;
+
+    for (const group of order) {
+      if (buckets[group][round] && picked.length < MAX_ALL) {
+        picked.push(buckets[group][round]);
+        added = true;
+      }
+    }
+
+    if (!added) break;
+  }
+
+  return picked.sort(compare);
+}
+
+// Moves the map: fits all places, or centres on the searched town
+function MapView({ center, places, focus }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (places.length > 0) {
+      const bounds = L.latLngBounds(places.map((p) => [p.lat, p.lng]));
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    } else {
+      map.setView(center, 12);
+    }
+  }, [center, places, map]);
+
+  useEffect(() => {
+    if (focus) map.setView([focus.lat, focus.lng], 15);
+  }, [focus, map]);
+
+  return null;
+}
+
+function DestinationMap({ trips = [], savedIds, onAddPlace, canAdd = true }) {
+  const [destination, setDestination] = useState("");
+  // The destination that was actually searched (the input changes while typing)
+  const [searchedName, setSearchedName] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [center, setCenter] = useState(DEFAULT_CENTER);
+  // Every place found, before picking the best ones to show
+  const [candidates, setCandidates] = useState([]);
+  // Photos and descriptions that arrive after the places: { placeId: {...} }
+  const [details, setDetails] = useState({});
+  const [focus, setFocus] = useState(null);
+  // "idle" | "loading" (nothing to show yet) | "widening" (still looking)
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState("");
+  const [category, setCategory] = useState("all");
+  const [sortMode, setSortMode] = useState("best");
+  const [tripId, setTripId] = useState("");
+
+  const mapBoxRef = useRef(null);
+  const typingTimerRef = useRef(null);
+  const suggestRef = useRef(0);
+  // Used to ignore answers from older searches
+  const requestRef = useRef(0);
+
+  const busy = status === "loading";
+  const places = useMemo(
+    () => pickBest(candidates, category, sortMode),
+    [candidates, category, sortMode],
+  );
+
+  const activeTrip =
+    trips.find((trip) => String(trip.id) === String(tripId)) ||
+    trips[0] ||
+    null;
+
+  const activeTripId = activeTrip ? activeTrip.id : "";
+
+  useEffect(() => {
+    return () => clearTimeout(typingTimerRef.current);
+  }, []);
+
+  function isSaved(placeId) {
+    return savedIds ? savedIds.has(`${activeTripId}:${placeId}`) : false;
+  }
+
+  // ----- Suggestions while typing -----
+  function handleInputChange(value) {
+    setDestination(value);
+    clearTimeout(typingTimerRef.current);
+
+    const text = value.trim();
+    if (text.length < 2) {
+      suggestRef.current++;
+      setSuggestions([]);
+      return;
+    }
+
+    typingTimerRef.current = setTimeout(async () => {
+      const id = ++suggestRef.current;
+      try {
+        const found = await photonSearch(text, 6);
+        if (id === suggestRef.current) setSuggestions(found);
+      } catch (err) {
+        console.error("Suggestion error:", err);
+        if (id === suggestRef.current) setSuggestions([]);
+      }
+    }, 350);
+  }
+
+  function pickSuggestion(suggestion) {
+    clearTimeout(typingTimerRef.current);
+    suggestRef.current++;
+    setDestination(suggestion.label);
+    setSuggestions([]);
+    startSearch(suggestion.lat, suggestion.lon, suggestion.name);
+  }
+
+  // Wikipedia photos and descriptions for the best places that have them
+  async function enrichPlaces(list, requestId) {
+    const toEnrich = list
+      .filter((p) => p.wikipedia && !p.photo)
+      .slice(0, MAX_ENRICH);
+    if (toEnrich.length === 0) return;
+
+    const results = await Promise.allSettled(
+      toEnrich.map((p) => fetchWikiSummary(p.wikipedia)),
+    );
+
+    if (requestId !== requestRef.current) return;
+
+    const extra = {};
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled" && result.value) {
+        extra[toEnrich[index].id] = result.value;
+      }
+    });
+    setDetails(extra);
+  }
+
+  // ----- Finding the best spots -----
+  async function loadPlaces(lat, lon, selectedCategory) {
+    const requestId = ++requestRef.current;
+    const isStale = () => requestId !== requestRef.current;
+    const groupKeys = EXPLORE_CATEGORIES[selectedCategory].groups;
+    const spot = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+    const cacheKey = `${spot}|${selectedCategory}`;
+
+    setError("");
+    setDetails({});
+    setFocus(null);
+
+    // The same search a moment ago (or an "All" search, which already holds
+    // every kind of place): show it again without asking the servers
+    const cached = readPlaceCache(cacheKey) || readPlaceCache(`${spot}|all`);
+    if (cached) {
+      setCandidates(cached);
+      setStatus("idle");
+      enrichPlaces(pickBest(cached, selectedCategory, "best"), requestId);
+      return;
+    }
+
+    setCandidates([]);
+    setStatus("loading");
+
+    try {
+      let wiki = [];
+      let osm = [];
+      let osmError = null;
+      let osmDone = false;
+
+      // Wikipedia (photos of famous places) is asked at the same time as the
+      // map servers, and is merged in whenever it arrives
+      const wikiPromise = fetchWikiPlaces(lat, lon, groupKeys)
+        .then((result) => {
+          wiki = result;
+          if (isStale()) return;
+          const merged = mergePlaces(osm, wiki);
+          setCandidates(merged);
+          if (osmDone && merged.length > 0) writePlaceCache(cacheKey, merged);
+        })
+        .catch((err) => {
+          console.error("Wikipedia error:", err);
+        });
+
+      try {
+        osm = await fetchOsmPlaces(
+          lat,
+          lon,
+          groupKeys,
+          (list, morePending) => {
+            if (isStale()) return;
+            osm = list;
+            setCandidates(mergePlaces(list, wiki));
+            setStatus(morePending ? "widening" : "loading");
+          },
+          isStale,
+        );
+      } catch (err) {
+        console.error("OpenStreetMap error:", err);
+        osmError = err;
+      }
+      osmDone = true;
+
+      if (isStale()) return;
+
+      // Give Wikipedia a moment, but never keep the list waiting for it
+      await Promise.race([
+        wikiPromise,
+        new Promise((resolve) => setTimeout(resolve, WIKI_WAIT_MS)),
+      ]);
+      if (isStale()) return;
+
+      const all = mergePlaces(osm, wiki);
+      setCandidates(all);
+
+      // Only an error when there is nothing at all to show
+      if (all.length === 0) {
+        setError(
+          osmError
+            ? osmError.message || "Could not load places. Please try again."
+            : "No places found nearby for this category. Try All or another category.",
+        );
+        return;
+      }
+
+      writePlaceCache(cacheKey, all);
+      enrichPlaces(pickBest(all, selectedCategory, "best"), requestId);
+    } catch (err) {
+      if (isStale()) return;
+      console.error("Places error:", err);
+      setError(err.message || "Could not load tourist places.");
+    } finally {
+      if (!isStale()) setStatus("idle");
+    }
+  }
+
+  function startSearch(lat, lon, name) {
+    setCenter([lat, lon]);
+    setSearchedName(name);
+    loadPlaces(lat, lon, category);
+  }
+
+  async function searchDestination(e) {
+    e.preventDefault();
+    clearTimeout(typingTimerRef.current);
+    suggestRef.current++;
+    setSuggestions([]);
+
+    const text = destination.trim();
+    if (!text) {
+      setError("Please enter a destination.");
+      return;
+    }
+
+    setStatus("loading");
+    setError("");
+
+    try {
+      let results = [];
+      try {
+        results = await photonSearch(text, 1);
+      } catch (err) {
+        console.error("Photon error:", err);
+      }
+      if (results.length === 0) results = await nominatimSearch(text);
+
+      if (results.length === 0) {
+        throw new Error(
+          "Destination not found. Check the spelling or try a nearby town.",
+        );
+      }
+
+      startSearch(results[0].lat, results[0].lon, results[0].name);
+    } catch (err) {
+      console.error("Search error:", err);
+      setError(err.message || "Something went wrong.");
+      setStatus("idle");
+    }
+  }
+
+  // Explore around the place where the person is right now
+  function locateMe() {
+    if (!navigator.geolocation) {
+      setError("Your browser can't share your location.");
+      return;
+    }
+
+    clearTimeout(typingTimerRef.current);
+    suggestRef.current++;
+    setSuggestions([]);
+    setStatus("loading");
+    setError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        let name = "your location";
+
+        try {
+          const response = await fetch(
+            `${PHOTON_REVERSE_URL}?lat=${latitude}&lon=${longitude}&lang=en`,
+          );
+          if (response.ok) {
+            const data = await response.json();
+            const p = data.features?.[0]?.properties || {};
+            name =
+              p.city || p.locality || p.district || p.county || p.name || name;
+          }
+        } catch (err) {
+          console.error("Reverse search error:", err);
+        }
+
+        setDestination(name === "your location" ? "" : name);
+        startSearch(latitude, longitude, name);
+      },
+      () => {
+        setStatus("idle");
+        setError(
+          "Could not get your location. Allow location access in your browser and try again.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }
+
+  function handleCategoryChange(key) {
+    setCategory(key);
+
+    // Nothing to filter until a destination has been searched
+    if (!searchedName) return;
+
+    loadPlaces(center[0], center[1], key);
+  }
+
+  function showOnMap(place) {
+    // A fresh object each click, so clicking the same place again re-centres
+    setFocus({ lat: place.lat, lng: place.lng });
+    mapBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  async function handleAdd(place) {
+    if (!activeTripId) {
+      alert("Please create a trip first.");
+      return;
+    }
+
+    if (!onAddPlace) return;
+
+    // The parent shows its own message if something goes wrong
+    await onAddPlace(activeTripId, place);
+  }
+
+  return (
+    <div className="explorer">
+      <h3>
+        <Icon name="compass" size={30} strokeWidth={1.6} /> Explore a
+        Destination
+      </h3>
+      <p className="ex-note">
+        Search a place, or tap <strong>Near me</strong>, to see temples, hills,
+        hotels, food and essentials around it.
+      </p>
+
+      <form className="ex-search" onSubmit={searchDestination}>
+        <div className="ex-field">
+          <Icon name="search" size={20} className="ex-field-icon" />
+          <input
+            type="text"
+            placeholder="Search a destination... (try Hogenakkal)"
+            value={destination}
+            onChange={(e) => handleInputChange(e.target.value)}
+            autoComplete="off"
+          />
+
+          {suggestions.length > 0 && (
+            <ul className="ex-suggestions">
+              {suggestions.map((s) => (
+                <li key={s.key} onClick={() => pickSuggestion(s)}>
+                  <Icon name="pin" size={16} /> {s.label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="ex-locate"
+          onClick={locateMe}
+          disabled={busy}
+        >
+          <Icon name="locate" size={18} /> Near me
+        </button>
+
+        <button type="submit" disabled={busy}>
+          {busy ? "Searching..." : "Explore"}
+        </button>
+      </form>
+
+      {error && (
+        <p className="ex-error">
+          <Icon name="alert" size={18} /> {error}
+        </p>
+      )}
+
+      <div className="ex-chips">
+        {Object.entries(EXPLORE_CATEGORIES).map(([key, value]) => (
+          <button
+            key={key}
+            type="button"
+            className={`ex-chip${category === key ? " active" : ""}`}
+            onClick={() => handleCategoryChange(key)}
+          >
+            <Icon name={value.icon} size={17} /> {value.label}
+          </button>
+        ))}
+      </div>
+
+      {canAdd && (
+        <label className="ex-trip-pick">
+          Add places to:
+          <select
+            value={String(activeTripId)}
+            onChange={(e) => setTripId(e.target.value)}
+          >
+            {trips.length === 0 && <option value="">No trips available</option>}
+
+            {trips.map((trip) => (
+              <option key={trip.id} value={String(trip.id)}>
+                {trip.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <div className="ex-layout">
+        <div className="ex-map" ref={mapBoxRef}>
+          <MapContainer
+            center={center}
+            zoom={12}
+            scrollWheelZoom={true}
+            style={{ height: "450px", width: "100%" }}
+          >
+            <MapView center={center} places={places} focus={focus} />
+
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            {places.map((place) => (
+              <Marker
+                key={place.id}
+                position={[place.lat, place.lng]}
+                icon={markerIcon}
+              >
+                <Popup>
+                  <strong>{place.name}</strong>
+                  <br />
+                  {place.label || prettyCategory(place.category)}
+                  <br />
+                  <a href={place.mapsUri} target="_blank" rel="noreferrer">
+                    View location
+                  </a>
+                  {canAdd && (
+                    <>
+                      <br />
+                      <button
+                        type="button"
+                        disabled={isSaved(place.id) || !activeTripId}
+                        onClick={() => handleAdd(place)}
+                      >
+                        {isSaved(place.id) ? "In trip" : "Add to my trip"}
+                      </button>
+                    </>
+                  )}
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
+
+        <div className="ex-results">
+          {busy && places.length === 0 && (
+            <p className="ex-note ex-loading">
+              <span className="ex-spinner" /> Finding the best spots…
+            </p>
+          )}
+
+          {!busy && !searchedName && (
+            <p className="ex-note">
+              Search a place above, or tap Near me, and we'll show the best
+              spots around it.
+            </p>
+          )}
+
+          {places.length > 0 && (
+            <>
+              <div className="ex-results-head">
+                <h3>
+                  Top {places.length} {EXPLORE_CATEGORIES[category].plural} near{" "}
+                  {searchedName}
+                </h3>
+
+                <div className="ex-sort" role="group" aria-label="Sort">
+                  <button
+                    type="button"
+                    className={sortMode === "best" ? "active" : ""}
+                    onClick={() => setSortMode("best")}
+                  >
+                    Best match
+                  </button>
+                  <button
+                    type="button"
+                    className={sortMode === "near" ? "active" : ""}
+                    onClick={() => setSortMode("near")}
+                  >
+                    Nearest
+                  </button>
+                </div>
+              </div>
+
+              {status === "widening" && (
+                <p className="ex-note ex-loading">
+                  <span className="ex-spinner" /> Looking a little wider for
+                  more spots…
+                </p>
+              )}
+
+              {places.map((place, index) => {
+                const saved = isSaved(place.id);
+                const info = details[place.id];
+                const photo = info?.photo || place.photo;
+                const wikiUrl = info?.wikiUrl || place.wikiUrl;
+                const summary =
+                  info?.summary ||
+                  truncate(place.description, 220) ||
+                  GROUP_BLURB[place.group] ||
+                  "A spot worth a visit.";
+                const iconName = placeIconName(place);
+
+                return (
+                  <div className="ex-card" key={place.id}>
+                    <div className="ex-photo">
+                      {photo ? (
+                        <img src={photo} alt={place.name} loading="lazy" />
+                      ) : (
+                        <Icon name={iconName} size={36} strokeWidth={1.4} />
+                      )}
+                    </div>
+
+                    <div className="ex-info-body">
+                      <h4>
+                        <span className="ex-rank">{index + 1}</span>
+                        {place.name}
+                        {place.score >= 6 && (
+                          <span
+                            className="ex-star"
+                            title="Well-known or detailed listing"
+                          >
+                            <Icon name="star" size={15} />
+                          </span>
+                        )}
+                      </h4>
+
+                      <p className="ex-rating">
+                        <Icon name={iconName} size={13} />
+                        {place.label || prettyCategory(place.category)} ·{" "}
+                        {place.distanceKm < 1
+                          ? "under 1 km"
+                          : `${place.distanceKm.toFixed(1)} km`}{" "}
+                        away
+                      </p>
+
+                      <p className="ex-desc">{summary}</p>
+
+                      {(place.address || place.phone || place.hours) && (
+                        <p className="ex-meta">
+                          {place.address && (
+                            <span>
+                              <Icon name="pin" size={13} />
+                              {truncate(place.address, 50)}
+                            </span>
+                          )}
+                          {place.phone && (
+                            <span>
+                              <Icon name="phone" size={13} />
+                              {place.phone}
+                            </span>
+                          )}
+                          {place.hours && (
+                            <span>
+                              <Icon name="clock" size={13} />
+                              {truncate(place.hours, 44)}
+                            </span>
+                          )}
+                        </p>
+                      )}
+
+                      <div className="ex-actions">
+                        <button type="button" onClick={() => showOnMap(place)}>
+                          <Icon name="map" size={14} /> View on map
+                        </button>
+
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Icon name="directions" size={14} /> Directions
+                        </a>
+
+                        {place.website && (
+                          <a
+                            href={place.website}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Icon name="globe" size={14} /> Website
+                          </a>
+                        )}
+
+                        {wikiUrl && (
+                          <a href={wikiUrl} target="_blank" rel="noreferrer">
+                            <Icon name="book" size={14} /> Read more
+                          </a>
+                        )}
+
+                        {canAdd && (
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={saved || !activeTripId}
+                            onClick={() => handleAdd(place)}
+                          >
+                            <Icon name={saved ? "check" : "plus"} size={14} />{" "}
+                            {saved ? "In trip" : "Add to my trip"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      </div>
+
+      <p className="ex-note">
+        Map data © OpenStreetMap contributors. Places are ranked by how detailed
+        and well-known their listing is, then by distance. Star ratings are not
+        in free map data. Photos and descriptions come from Wikipedia when
+        available.
+      </p>
+    </div>
+  );
+}
+
+// =====================================================================
+// THE APP
+// =====================================================================
 const BUCKET = "memory-photos";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MAX_FILE_MB = 50;
@@ -34,164 +1946,6 @@ const STATUS_FILTERS = ["all", "planning", "confirmed", "ongoing", "completed"];
 // Stable empty values (a new [] every render would look like a change)
 const EMPTY_LIST = [];
 const EMPTY_OBJECT = {};
-
-// ----- Menu icons (clean line icons, no extra library needed) -----
-function MenuIcon({ children }) {
-  return (
-    <svg
-      className="menu-icon"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}
-
-const IconView = () => (
-  <MenuIcon>
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
-    <circle cx="12" cy="12" r="3" />
-  </MenuIcon>
-);
-
-const IconDownload = () => (
-  <MenuIcon>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="7 10 12 15 17 10" />
-    <line x1="12" y1="15" x2="12" y2="3" />
-  </MenuIcon>
-);
-
-const IconTrash = () => (
-  <MenuIcon>
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-    <path d="M10 11v6" />
-    <path d="M14 11v6" />
-    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-  </MenuIcon>
-);
-
-// ----- Professional line icons for the login / sign-up forms -----
-const UI_ICON_PATHS = {
-  user: (
-    <>
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </>
-  ),
-  mail: (
-    <>
-      <rect x="2" y="4" width="20" height="16" rx="3" />
-      <path d="m22 7-10 6L2 7" />
-    </>
-  ),
-  lock: (
-    <>
-      <rect x="3" y="11" width="18" height="11" rx="3" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </>
-  ),
-  eye: (
-    <>
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
-      <circle cx="12" cy="12" r="3" />
-    </>
-  ),
-  eyeOff: (
-    <>
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-6.5 0-10-7-10-7a18.5 18.5 0 0 1 5.06-5.94" />
-      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19" />
-      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-      <path d="m1 1 22 22" />
-    </>
-  ),
-  alert: (
-    <>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 8v4" />
-      <path d="M12 16h.01" />
-    </>
-  ),
-  check: <polyline points="20 6 9 17 4 12" />,
-  x: (
-    <>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </>
-  ),
-  users: (
-    <>
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </>
-  ),
-  shield: (
-    <>
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="m9 12 2 2 4-4" />
-    </>
-  ),
-};
-
-function UiIcon({ name, size = 18 }) {
-  return (
-    <svg
-      className="ui-icon"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {UI_ICON_PATHS[name]}
-    </svg>
-  );
-}
-
-// Animated tick used on the success screens
-function SuccessCheck() {
-  return (
-    <div className="success-check">
-      <svg viewBox="0 0 52 52" aria-hidden="true">
-        <circle className="success-circle" cx="26" cy="26" r="23" />
-        <path className="success-tick" d="M15 27l8 8 15-17" />
-      </svg>
-    </div>
-  );
-}
-
-function FormError({ children }) {
-  return (
-    <p className="form-error">
-      <UiIcon name="alert" size={16} />
-      <span>{children}</span>
-    </p>
-  );
-}
-
-function MatchNote({ ok }) {
-  return (
-    <p className={`match-note ${ok ? "ok" : "bad"}`}>
-      <UiIcon name={ok ? "check" : "x"} size={14} />
-      {ok ? "Passwords match" : "Passwords don't match yet"}
-    </p>
-  );
-}
 
 // Works for old rows (full public URL) and new rows (just the file name)
 function getPath(imageUrl) {
@@ -760,7 +2514,7 @@ function GangChat({ userId, userName, isAdmin, onlineCount }) {
         onClick={toggleChat}
         title="Gang chat"
       >
-        💬
+        <Icon name="chat" size={24} />
         {unread > 0 && <span className="chat-badge">{unread}</span>}
       </button>
     </>
@@ -823,6 +2577,13 @@ function App() {
   const [signingUp, setSigningUp] = useState(false);
   const [signupError, setSignupError] = useState("");
   const [signupDone, setSignupDone] = useState(false);
+  // Show the red/green mark on the email only after the person has left it
+  const [emailTouched, setEmailTouched] = useState(false);
+  // The address the verification link was sent to
+  const [signupSentTo, setSignupSentTo] = useState("");
+  // "" | "sending" | "sent" | "error" (resending the verification email)
+  const [signupResend, setSignupResend] = useState("");
+  const [showLoginPw, setShowLoginPw] = useState(false);
 
   const [fullName, setFullName] = useState("");
   const [savingName, setSavingName] = useState(false);
@@ -884,6 +2645,34 @@ function App() {
 
   const strength = getStrength(signupPassword);
 
+  // Live check of the sign-up email
+  const signupEmailProblem = signupEmail.trim()
+    ? getEmailProblem(signupEmail)
+    : "";
+  const emailStatus = !signupEmail.trim()
+    ? ""
+    : signupEmailProblem
+      ? emailTouched
+        ? "bad"
+        : ""
+      : "ok";
+
+  const passwordRules = [
+    { label: "8+ characters", ok: signupPassword.length >= 8 },
+    {
+      label: "Upper & lower case",
+      ok: /[A-Z]/.test(signupPassword) && /[a-z]/.test(signupPassword),
+    },
+    { label: "A number", ok: /\d/.test(signupPassword) },
+    { label: "A symbol", ok: /[^A-Za-z0-9]/.test(signupPassword) },
+  ];
+
+  // Members may delete only what they uploaded (the admin may delete anything)
+  function canDeleteMemory(memory) {
+    if (!session) return false;
+    return isDeveloper || memory.user_id === session.user.id;
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setAuthSession(data.session);
@@ -903,14 +2692,6 @@ function App() {
   const myId = session?.user?.id;
   const myName =
     session?.user?.user_metadata?.full_name || session?.user?.email || "Member";
-
-  // The admin can delete anything. Everyone else can delete only the
-  // photos and videos that they uploaded themselves.
-  function canDeleteMemory(memory) {
-    if (!session) return false;
-    if (isDeveloper) return true;
-    return Boolean(memory.user_id) && memory.user_id === myId;
-  }
 
   useEffect(() => {
     if (!myId) return;
@@ -1196,103 +2977,56 @@ function App() {
     loadMemories();
   }, [session]);
 
-  // Live memories: when any member adds, changes or deletes a photo/video,
-  // everyone logged in sees it without refreshing. Three layers keep it
-  // reliable: realtime events, a 15 second re-check, and a re-check when
-  // the tab becomes visible again.
+  // Live memories: when anyone uploads or deletes a photo/video, everybody
+  // who has the site open sees it straight away (no refresh needed)
   useEffect(() => {
     if (!myId) return;
 
-    let cancelled = false;
-    // ids already shown (null until the first check finishes)
-    let known = null;
-
-    function showMemoryToast(text) {
-      setLiveToast(text);
-      clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = setTimeout(() => setLiveToast(""), 4000);
-    }
-
-    async function refreshMemories() {
-      const { data, error } = await supabase
-        .from("memories")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (cancelled) return;
-      if (error) {
-        console.error("Live memories refresh error:", error);
-        return;
-      }
-
-      const rows = data || [];
-      const paths = rows.map((row) => getPath(row.image_url)).filter(Boolean);
-
-      const urlMap = {};
-      if (paths.length > 0) {
-        const { data: signed } = await supabase.storage
-          .from(BUCKET)
-          .createSignedUrls(paths, 3600);
-        (signed || []).forEach((item) => {
-          if (item.signedUrl) urlMap[item.path] = item.signedUrl;
-        });
-      }
-
-      if (cancelled) return;
-
-      // Tell the member about memories that just arrived
-      if (known) {
-        const fresh = rows.filter((row) => !known.has(row.id));
-        if (fresh.length > 0) {
-          const first = fresh[0];
-          const kind = first.media_type === "video" ? "video" : "photo";
-          showMemoryToast(
-            fresh.length === 1
-              ? `📸 New ${kind} added: ${first.title}`
-              : `📸 ${fresh.length} new memories added`,
-          );
-        }
-      }
-      known = new Set(rows.map((row) => row.id));
-
-      // Keep the old link for files already shown, so nothing flickers
-      setMemories((previous) => {
-        const old = new Map(previous.map((m) => [m.id, m]));
-        return rows.map((row) => {
-          const before = old.get(row.id);
-          const keepOld =
-            before && before.image_url === row.image_url && before.signed_url;
-          return {
-            ...row,
-            signed_url: keepOld || urlMap[getPath(row.image_url)] || null,
-          };
-        });
-      });
-    }
-
     const channel = supabase
-      .channel("live-memories")
+      .channel("memories-live")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "memories" },
-        () => refreshMemories(),
+        { event: "INSERT", schema: "public", table: "memories" },
+        async (payload) => {
+          const row = payload.new;
+          if (!row) return;
+
+          let signedUrl = null;
+          const path = getPath(row.image_url);
+          if (path) {
+            const { data: signed } = await supabase.storage
+              .from(BUCKET)
+              .createSignedUrl(path, 3600);
+            signedUrl = signed?.signedUrl || null;
+          }
+
+          setMemories((current) =>
+            current.some((m) => m.id === row.id)
+              ? current
+              : [{ ...row, signed_url: signedUrl }, ...current],
+          );
+
+          if (row.user_id && row.user_id !== myId) {
+            const who = row.author_name || "Someone";
+            const what = row.media_type === "video" ? "video" : "photo";
+            setLiveToast(`${who} added a new ${what}`);
+            clearTimeout(toastTimerRef.current);
+            toastTimerRef.current = setTimeout(() => setLiveToast(""), 4000);
+          }
+        },
       )
-      .subscribe((status, err) => {
-        console.log("Live memories channel:", status, err || "");
-        if (status === "SUBSCRIBED") refreshMemories();
-      });
-
-    const timer = setInterval(refreshMemories, 15000);
-
-    function onVisible() {
-      if (document.visibilityState === "visible") refreshMemories();
-    }
-    document.addEventListener("visibilitychange", onVisible);
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "memories" },
+        (payload) => {
+          const id = payload.old?.id;
+          if (id === undefined || id === null) return;
+          setMemories((current) => current.filter((m) => m.id !== id));
+        },
+      )
+      .subscribe();
 
     return () => {
-      cancelled = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
       supabase.removeChannel(channel);
     };
   }, [myId]);
@@ -1388,9 +3122,18 @@ function App() {
   async function handleSendCode(e) {
     e.preventDefault();
     setResetError("");
+
+    const emailProblem = getEmailProblem(email);
+    if (emailProblem) {
+      setResetError(emailProblem);
+      return;
+    }
+
     setResetBusy(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+    );
 
     setResetBusy(false);
 
@@ -1506,6 +3249,23 @@ function App() {
   async function handleSignup(e) {
     e.preventDefault();
     setSignupError("");
+    setEmailTouched(true);
+
+    const name = signupName.trim();
+    const emailValue = signupEmail.trim().toLowerCase();
+
+    if (name.length < 2) {
+      setSignupError("Please enter your full name.");
+      return;
+    }
+
+    // Only a real email can receive the verification link and, later, the
+    // code that lets a person who forgot the password choose a new one
+    const emailProblem = getEmailProblem(emailValue);
+    if (emailProblem) {
+      setSignupError(emailProblem);
+      return;
+    }
 
     if (signupPassword.length < 8) {
       setSignupError("Your password needs at least 8 characters.");
@@ -1517,14 +3277,19 @@ function App() {
       return;
     }
 
+    if (!agree) {
+      setSignupError("Please tick the box to continue.");
+      return;
+    }
+
     setSigningUp(true);
 
     const { data, error } = await supabase.auth.signUp({
-      email: signupEmail.trim(),
+      email: emailValue,
       password: signupPassword,
       options: {
-        data: { full_name: signupName.trim() },
-        // The confirmation link brings the person back to this site
+        data: { full_name: name },
+        // The verification link brings the person back to this site
         emailRedirectTo: window.location.origin,
       },
     });
@@ -1533,7 +3298,19 @@ function App() {
 
     if (error) {
       console.error("Signup error:", error);
-      setSignupError(error.message);
+      const message = (error.message || "").toLowerCase();
+
+      if (message.includes("rate limit")) {
+        setSignupError(
+          "Too many emails were sent just now. Please wait a few minutes and try again.",
+        );
+      } else if (message.includes("already")) {
+        setSignupError("This email is already registered. Try logging in.");
+      } else if (message.includes("invalid") && message.includes("email")) {
+        setSignupError("That email address isn't accepted. Please check it.");
+      } else {
+        setSignupError(error.message);
+      }
       return;
     }
 
@@ -1553,7 +3330,31 @@ function App() {
     setSignupConfirm("");
     setAgree(false);
     setShowPassword(false);
+    setEmailTouched(false);
+
+    // When email verification is switched off in Supabase the person is
+    // already logged in and nothing more has to be shown here
+    if (data.session) return;
+
+    setSignupSentTo(emailValue);
+    setSignupResend("");
     setSignupDone(true);
+  }
+
+  // Send the verification email to the new member again
+  async function handleResendSignup() {
+    if (!signupSentTo) return;
+
+    setSignupResend("sending");
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: signupSentTo,
+      options: { emailRedirectTo: window.location.origin },
+    });
+
+    if (error) console.error("Resend signup error:", error);
+    setSignupResend(error ? "error" : "sent");
   }
 
   async function handleLogout() {
@@ -1614,7 +3415,12 @@ function App() {
     if (file) {
       const hasExt = file.name.includes(".");
       const ext = hasExt ? file.name.split(".").pop() : "";
-      const path = ext ? `${crypto.randomUUID()}.${ext}` : crypto.randomUUID();
+      // Each member uploads into their own folder (it is what lets the
+      // database rules say "you can only remove your own files")
+      const fileName = ext
+        ? `${crypto.randomUUID()}.${ext}`
+        : crypto.randomUUID();
+      const path = `${session.user.id}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from(BUCKET)
@@ -1630,8 +3436,6 @@ function App() {
       imagePath = path;
     }
 
-    // user_id remembers who uploaded this memory, so only they
-    // (and the admin) can delete it later
     const { data, error } = await supabase
       .from("memories")
       .insert({
@@ -1640,7 +3444,8 @@ function App() {
         image_url: imagePath,
         memory_date: memoryDate,
         media_type: mediaType,
-        user_id: myId,
+        user_id: session.user.id,
+        author_name: myName,
       })
       .select()
       .single();
@@ -1665,11 +3470,10 @@ function App() {
     }
 
     setUploading(false);
+    // The live listener may already have added this row, so never add twice
     setMemories((current) =>
       current.some((m) => m.id === data.id)
-        ? current.map((m) =>
-            m.id === data.id ? { ...m, signed_url: signedUrl } : m,
-          )
+        ? current
         : [{ ...data, signed_url: signedUrl }, ...current],
     );
 
@@ -1688,7 +3492,6 @@ function App() {
   async function handleDeleteMemory(id) {
     const memory = memories.find((m) => m.id === id);
 
-    // Safety check in the page (the database enforces the same rule)
     if (!memory || !canDeleteMemory(memory)) {
       alert("You can only delete the photos and videos you uploaded.");
       return;
@@ -1696,9 +3499,7 @@ function App() {
 
     if (!window.confirm("Delete this memory?")) return;
 
-    // .select() returns the deleted rows, so we can tell when the
-    // database refused to delete anything
-    const { data: deletedRows, error } = await supabase
+    const { data: removed, error } = await supabase
       .from("memories")
       .delete()
       .eq("id", id)
@@ -1710,13 +3511,14 @@ function App() {
       return;
     }
 
-    if (!deletedRows || deletedRows.length === 0) {
-      alert("This memory could not be deleted. It may not be yours.");
+    // The database refuses silently when the rules say no
+    if (!removed || removed.length === 0) {
+      alert("You can only delete the photos and videos you uploaded.");
       return;
     }
 
     // Also remove the file so storage doesn't fill up
-    const path = getPath(memory.image_url);
+    const path = memory ? getPath(memory.image_url) : null;
     if (path) {
       const { error: removeError } = await supabase.storage
         .from(BUCKET)
@@ -2697,39 +4499,68 @@ function App() {
               </button>
 
               {loginOpen && (
-                <div className="login-dropdown">
+                <div className="login-dropdown su-card">
                   {/* 1. Normal login */}
                   {loginMode === "login" && (
                     <>
-                      <h4>Welcome back</h4>
-                      <p className="login-sub">Log in to open our memories.</p>
+                      <div className="su-head" style={{ "--i": 0 }}>
+                        <span className="su-badge">
+                          <Icon name="lock" size={22} />
+                        </span>
+                        <div>
+                          <h4>Welcome back</h4>
+                          <p className="login-sub">
+                            Log in to open our memories.
+                          </p>
+                        </div>
+                      </div>
 
-                      <form className="login-form" onSubmit={handleLogin}>
-                        <input
+                      <form
+                        className="login-form su-form"
+                        onSubmit={handleLogin}
+                      >
+                        <AuthField
+                          icon="mail"
+                          label="Email address"
                           type="email"
-                          placeholder="Email"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          required
+                          autoComplete="email"
                           autoFocus
+                          required
+                          index={1}
                         />
-                        <input
-                          type="password"
-                          placeholder="Password"
+                        <AuthField
+                          icon="lock"
+                          label="Password"
+                          type={showLoginPw ? "text" : "password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
+                          autoComplete="current-password"
                           required
+                          index={2}
+                          right={
+                            <button
+                              type="button"
+                              className="su-eye"
+                              onClick={() => setShowLoginPw((v) => !v)}
+                              title={
+                                showLoginPw ? "Hide password" : "Show password"
+                              }
+                            >
+                              <Icon
+                                name={showLoginPw ? "eye-off" : "eye"}
+                                size={18}
+                              />
+                            </button>
+                          }
                         />
 
-                        {loginNotice &&
-                          (loginNotice.type === "info" ? (
-                            <p className="form-info">
-                              <UiIcon name="mail" size={16} />
-                              <span>{loginNotice.text}</span>
-                            </p>
-                          ) : (
-                            <FormError>{loginNotice.text}</FormError>
-                          ))}
+                        {loginNotice && (
+                          <AuthNote type={loginNotice.type}>
+                            {loginNotice.text}
+                          </AuthNote>
+                        )}
 
                         {needsConfirm && (
                           <button
@@ -2752,8 +4583,15 @@ function App() {
                           Forgot password?
                         </button>
 
-                        <button type="submit" disabled={loggingIn}>
-                          {loggingIn ? "Logging in..." : "Login"}
+                        <button
+                          type="submit"
+                          className="su-submit"
+                          disabled={loggingIn}
+                          style={{ "--i": 3 }}
+                        >
+                          {loggingIn && <span className="su-spinner" />}
+                          <span>{loggingIn ? "Logging in..." : "Login"}</span>
+                          {!loggingIn && <Icon name="arrow-right" size={18} />}
                         </button>
                       </form>
 
@@ -2776,31 +4614,51 @@ function App() {
                   {/* 2. Ask for the email */}
                   {loginMode === "forgot" && (
                     <>
-                      <h4>Forgot password?</h4>
-                      <p className="login-sub">
-                        Enter your email and we'll send you a code.
-                      </p>
+                      <div className="su-head" style={{ "--i": 0 }}>
+                        <span className="su-badge">
+                          <Icon name="key" size={22} />
+                        </span>
+                        <div>
+                          <h4>Forgot password?</h4>
+                          <p className="login-sub">
+                            Enter your email and we'll send you a code.
+                          </p>
+                        </div>
+                      </div>
 
-                      <form className="login-form" onSubmit={handleSendCode}>
-                        <input
+                      <form
+                        className="login-form su-form"
+                        onSubmit={handleSendCode}
+                      >
+                        <AuthField
+                          icon="mail"
+                          label="Your email"
                           type="email"
-                          placeholder="Your email"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          required
+                          autoComplete="email"
                           autoFocus
+                          required
+                          index={1}
                         />
 
-                        {resetError && <FormError>{resetError}</FormError>}
+                        {resetError && <AuthNote>{resetError}</AuthNote>}
 
-                        <button type="submit" disabled={resetBusy}>
-                          {resetBusy ? "Sending..." : "Send Code"}
+                        <button
+                          type="submit"
+                          className="su-submit"
+                          disabled={resetBusy}
+                          style={{ "--i": 2 }}
+                        >
+                          {resetBusy && <span className="su-spinner" />}
+                          <span>{resetBusy ? "Sending..." : "Send Code"}</span>
+                          {!resetBusy && <Icon name="mail" size={18} />}
                         </button>
                       </form>
 
                       <p className="auth-switch">
                         <button type="button" onClick={backToLogin}>
-                          ← Back to login
+                          Back to login
                         </button>
                       </p>
                     </>
@@ -2809,32 +4667,52 @@ function App() {
                   {/* 3. Enter the code */}
                   {loginMode === "code" && (
                     <>
-                      <h4>Check your email</h4>
-                      <p className="login-sub">
-                        If <strong>{email}</strong> is registered, we sent it a
-                        code. Enter it below.
-                      </p>
+                      <div className="su-head" style={{ "--i": 0 }}>
+                        <span className="su-badge">
+                          <Icon name="mail-check" size={22} />
+                        </span>
+                        <div>
+                          <h4>Check your email</h4>
+                          <p className="login-sub">
+                            If <strong>{email}</strong> is registered, we sent
+                            it a code. Enter it below.
+                          </p>
+                        </div>
+                      </div>
 
-                      <form className="login-form" onSubmit={handleVerifyCode}>
-                        <input
-                          className="otp-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="one-time-code"
-                          maxLength={10}
-                          placeholder="Enter code"
+                      <form
+                        className="login-form su-form"
+                        onSubmit={handleVerifyCode}
+                      >
+                        <AuthField
+                          className="su-otp"
+                          icon="shield-check"
+                          label="Verification code"
                           value={otp}
                           onChange={(e) =>
                             setOtp(e.target.value.replace(/\s/g, ""))
                           }
-                          required
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          maxLength={10}
                           autoFocus
+                          required
+                          index={1}
                         />
 
-                        {resetError && <FormError>{resetError}</FormError>}
+                        {resetError && <AuthNote>{resetError}</AuthNote>}
 
-                        <button type="submit" disabled={resetBusy}>
-                          {resetBusy ? "Checking..." : "Verify Code"}
+                        <button
+                          type="submit"
+                          className="su-submit"
+                          disabled={resetBusy}
+                          style={{ "--i": 2 }}
+                        >
+                          {resetBusy && <span className="su-spinner" />}
+                          <span>
+                            {resetBusy ? "Checking..." : "Verify Code"}
+                          </span>
+                          {!resetBusy && <Icon name="arrow-right" size={18} />}
                         </button>
                       </form>
 
@@ -2862,52 +4740,94 @@ function App() {
                   {/* 4. Choose a new password */}
                   {loginMode === "newpass" && (
                     <>
-                      <h4>Set a new password</h4>
-                      <p className="login-sub">
-                        Code accepted. Choose a new password.
-                      </p>
+                      <div className="su-head" style={{ "--i": 0 }}>
+                        <span className="su-badge">
+                          <Icon name="lock" size={22} />
+                        </span>
+                        <div>
+                          <h4>Set a new password</h4>
+                          <p className="login-sub">
+                            Code accepted. Choose a new password.
+                          </p>
+                        </div>
+                      </div>
 
                       <form
-                        className="login-form"
+                        className="login-form su-form"
                         onSubmit={handleSetNewPassword}
                       >
-                        <div className="password-field">
-                          <input
-                            type={showNewPw ? "text" : "password"}
-                            placeholder="New password (min 8 characters)"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            required
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            className="eye-btn"
-                            onClick={() => setShowNewPw(!showNewPw)}
-                            title={
-                              showNewPw ? "Hide password" : "Show password"
-                            }
-                          >
-                            <UiIcon name={showNewPw ? "eyeOff" : "eye"} />
-                          </button>
-                        </div>
-
-                        <input
+                        <AuthField
+                          icon="lock"
+                          label="New password (min 8 characters)"
                           type={showNewPw ? "text" : "password"}
-                          placeholder="Confirm new password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          autoComplete="new-password"
+                          autoFocus
+                          required
+                          index={1}
+                          right={
+                            <button
+                              type="button"
+                              className="su-eye"
+                              onClick={() => setShowNewPw(!showNewPw)}
+                              title={
+                                showNewPw ? "Hide password" : "Show password"
+                              }
+                            >
+                              <Icon
+                                name={showNewPw ? "eye-off" : "eye"}
+                                size={18}
+                              />
+                            </button>
+                          }
+                        />
+
+                        <AuthField
+                          icon="lock"
+                          label="Confirm new password"
+                          type={showNewPw ? "text" : "password"}
                           value={newConfirm}
                           onChange={(e) => setNewConfirm(e.target.value)}
+                          autoComplete="new-password"
                           required
+                          index={2}
+                          status={
+                            newConfirm
+                              ? newConfirm === newPassword
+                                ? "ok"
+                                : "bad"
+                              : ""
+                          }
                         />
 
                         {newConfirm && (
-                          <MatchNote ok={newConfirm === newPassword} />
+                          <p
+                            className={`match-note ${newConfirm === newPassword ? "ok" : "bad"}`}
+                          >
+                            <Icon
+                              name={newConfirm === newPassword ? "check" : "x"}
+                              size={14}
+                            />
+                            {newConfirm === newPassword
+                              ? "Passwords match"
+                              : "Passwords don't match yet"}
+                          </p>
                         )}
 
-                        {resetError && <FormError>{resetError}</FormError>}
+                        {resetError && <AuthNote>{resetError}</AuthNote>}
 
-                        <button type="submit" disabled={resetBusy}>
-                          {resetBusy ? "Saving..." : "Update Password"}
+                        <button
+                          type="submit"
+                          className="su-submit"
+                          disabled={resetBusy}
+                          style={{ "--i": 3 }}
+                        >
+                          {resetBusy && <span className="su-spinner" />}
+                          <span>
+                            {resetBusy ? "Saving..." : "Update Password"}
+                          </span>
+                          {!resetBusy && <Icon name="check" size={18} />}
                         </button>
                       </form>
 
@@ -2921,18 +4841,19 @@ function App() {
 
                   {/* 5. Done */}
                   {loginMode === "reset-done" && (
-                    <div className="signup-success">
-                      <SuccessCheck />
+                    <div className="signup-success su-success">
+                      <SuccessMark />
                       <h4>Password updated</h4>
                       <p>
                         Your password was changed. You can log in with it now.
                       </p>
                       <button
                         type="button"
-                        className="signup-success-btn"
+                        className="signup-success-btn su-submit"
                         onClick={backToLogin}
                       >
-                        Go to Login
+                        <span>Go to Login</span>
+                        <Icon name="arrow-right" size={18} />
                       </button>
                     </div>
                   )}
@@ -2952,6 +4873,7 @@ function App() {
                   closeMenus();
                   setSignupDone(false);
                   setSignupError("");
+                  setSignupResend("");
                   setSignupOpen(next);
                 }}
               >
@@ -2959,56 +4881,78 @@ function App() {
               </button>
 
               {signupOpen && (
-                <div className="signup-dropdown">
+                <div className="signup-dropdown su-card">
                   {signupDone ? (
-                    <div className="signup-success">
-                      <SuccessCheck />
-                      <h4>You're almost in!</h4>
+                    <div className="signup-success su-success">
+                      <SuccessMark />
+                      <h4>Verify your email</h4>
                       <p>
-                        Your account is created. Check your inbox (and spam
-                        folder) for a confirmation email, click the link in it,
-                        then log in.
+                        We sent a verification link to{" "}
+                        <strong>{signupSentTo}</strong>. Open it to activate
+                        your account, then log in.
                       </p>
 
-                      <ul className="signup-steps">
+                      <ol className="su-steps">
                         <li>
-                          <span className="signup-step-icon">
-                            <UiIcon name="mail" size={16} />
-                          </span>
-                          Confirm your email
+                          <Icon name="mail" size={16} /> Open the email (check
+                          Spam too)
                         </li>
                         <li>
-                          <span className="signup-step-icon">
-                            <UiIcon name="shield" size={16} />
-                          </span>
-                          Wait for the admin to approve you
+                          <Icon name="shield-check" size={16} /> Click the
+                          verification link
                         </li>
                         <li>
-                          <span className="signup-step-icon">
-                            <UiIcon name="users" size={16} />
-                          </span>
-                          Join the gang and open our memories
+                          <Icon name="lock" size={16} /> Come back and log in
                         </li>
-                      </ul>
+                      </ol>
+
+                      <p className="su-small">
+                        If you ever forget your password, we'll send a code to
+                        this same address.
+                      </p>
+
+                      {signupResend === "sent" && (
+                        <AuthNote type="info">
+                          Verification email sent again.
+                        </AuthNote>
+                      )}
+                      {signupResend === "error" && (
+                        <AuthNote>
+                          Could not resend it. Please try again in a minute.
+                        </AuthNote>
+                      )}
 
                       <button
                         type="button"
-                        className="signup-success-btn"
+                        className="su-ghost"
+                        onClick={handleResendSignup}
+                        disabled={signupResend === "sending"}
+                      >
+                        {signupResend === "sending"
+                          ? "Sending..."
+                          : "Resend verification email"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="signup-success-btn su-submit"
                         onClick={() => {
                           closeMenus();
                           setSignupDone(false);
+                          setEmail(signupSentTo);
                           setLoginMode("login");
                           setLoginOpen(true);
                         }}
                       >
-                        Go to Login
+                        <span>Go to Login</span>
+                        <Icon name="arrow-right" size={18} />
                       </button>
                     </div>
                   ) : (
                     <>
-                      <div className="signup-head">
-                        <span className="signup-badge">
-                          <UiIcon name="users" size={22} />
+                      <div className="su-head" style={{ "--i": 0 }}>
+                        <span className="su-badge">
+                          <Icon name="user-plus" size={22} />
                         </span>
                         <div>
                           <h4>Join the gang</h4>
@@ -3018,56 +4962,93 @@ function App() {
                         </div>
                       </div>
 
-                      <form className="signup-form" onSubmit={handleSignup}>
-                        <div className="su-field">
-                          <span className="su-icon">
-                            <UiIcon name="user" />
-                          </span>
-                          <input
-                            type="text"
-                            placeholder="Full name"
-                            value={signupName}
-                            onChange={(e) => setSignupName(e.target.value)}
-                            required
-                            autoFocus
-                          />
-                        </div>
+                      <form
+                        className="signup-form su-form"
+                        onSubmit={handleSignup}
+                        noValidate
+                      >
+                        <AuthField
+                          icon="user"
+                          label="Full name"
+                          value={signupName}
+                          onChange={(e) => setSignupName(e.target.value)}
+                          autoComplete="name"
+                          autoFocus
+                          required
+                          index={1}
+                        />
 
-                        <div className="su-field">
-                          <span className="su-icon">
-                            <UiIcon name="mail" />
-                          </span>
-                          <input
-                            type="email"
-                            placeholder="Email address"
-                            value={signupEmail}
-                            onChange={(e) => setSignupEmail(e.target.value)}
-                            required
-                          />
-                        </div>
+                        <AuthField
+                          icon="mail"
+                          label="Email address"
+                          type="email"
+                          value={signupEmail}
+                          onChange={(e) => setSignupEmail(e.target.value)}
+                          onBlur={() => setEmailTouched(true)}
+                          autoComplete="email"
+                          required
+                          index={2}
+                          status={emailStatus}
+                          right={
+                            emailStatus ? (
+                              <span className={`su-state ${emailStatus}`}>
+                                <Icon
+                                  name={emailStatus === "ok" ? "check" : "x"}
+                                  size={15}
+                                  strokeWidth={2.6}
+                                />
+                              </span>
+                            ) : null
+                          }
+                        />
 
-                        <div className="password-field su-field">
-                          <span className="su-icon">
-                            <UiIcon name="lock" />
-                          </span>
-                          <input
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Password (min 8 characters)"
-                            value={signupPassword}
-                            onChange={(e) => setSignupPassword(e.target.value)}
-                            required
-                          />
-                          <button
-                            type="button"
-                            className="eye-btn"
-                            onClick={() => setShowPassword(!showPassword)}
-                            title={
-                              showPassword ? "Hide password" : "Show password"
+                        <p
+                          className={`su-hint ${emailStatus === "bad" ? "bad" : emailStatus === "ok" ? "ok" : ""}`}
+                        >
+                          <Icon
+                            name={
+                              emailStatus === "bad"
+                                ? "alert"
+                                : emailStatus === "ok"
+                                  ? "mail-check"
+                                  : "info"
                             }
-                          >
-                            <UiIcon name={showPassword ? "eyeOff" : "eye"} />
-                          </button>
-                        </div>
+                            size={14}
+                          />
+                          <span>
+                            {emailStatus === "bad"
+                              ? signupEmailProblem
+                              : emailStatus === "ok"
+                                ? "Looks good. We'll send a verification link here."
+                                : "Use a real email. We verify it, and send a code to it if you forget your password."}
+                          </span>
+                        </p>
+
+                        <AuthField
+                          icon="lock"
+                          label="Password (min 8 characters)"
+                          type={showPassword ? "text" : "password"}
+                          value={signupPassword}
+                          onChange={(e) => setSignupPassword(e.target.value)}
+                          autoComplete="new-password"
+                          required
+                          index={3}
+                          right={
+                            <button
+                              type="button"
+                              className="su-eye"
+                              onClick={() => setShowPassword(!showPassword)}
+                              title={
+                                showPassword ? "Hide password" : "Show password"
+                              }
+                            >
+                              <Icon
+                                name={showPassword ? "eye-off" : "eye"}
+                                size={18}
+                              />
+                            </button>
+                          }
+                        />
 
                         {signupPassword && (
                           <div className="strength">
@@ -3087,54 +5068,88 @@ function App() {
                           </div>
                         )}
 
-                        <div className="su-field">
-                          <span className="su-icon">
-                            <UiIcon name="shield" />
-                          </span>
-                          <input
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Confirm password"
-                            value={signupConfirm}
-                            onChange={(e) => setSignupConfirm(e.target.value)}
-                            required
-                          />
-                        </div>
-
-                        {signupConfirm && (
-                          <MatchNote ok={signupConfirm === signupPassword} />
+                        {signupPassword && (
+                          <ul className="su-rules">
+                            {passwordRules.map((rule) => (
+                              <li
+                                key={rule.label}
+                                className={rule.ok ? "ok" : ""}
+                              >
+                                <Icon
+                                  name={rule.ok ? "check" : "x"}
+                                  size={12}
+                                  strokeWidth={2.6}
+                                />
+                                {rule.label}
+                              </li>
+                            ))}
+                          </ul>
                         )}
 
-                        <label className="agree-row">
+                        <AuthField
+                          icon="shield-check"
+                          label="Confirm password"
+                          type={showPassword ? "text" : "password"}
+                          value={signupConfirm}
+                          onChange={(e) => setSignupConfirm(e.target.value)}
+                          autoComplete="new-password"
+                          required
+                          index={4}
+                          status={
+                            signupConfirm
+                              ? signupConfirm === signupPassword
+                                ? "ok"
+                                : "bad"
+                              : ""
+                          }
+                        />
+
+                        {signupConfirm && (
+                          <p
+                            className={`match-note ${signupConfirm === signupPassword ? "ok" : "bad"}`}
+                          >
+                            <Icon
+                              name={
+                                signupConfirm === signupPassword ? "check" : "x"
+                              }
+                              size={14}
+                            />
+                            {signupConfirm === signupPassword
+                              ? "Passwords match"
+                              : "Passwords don't match yet"}
+                          </p>
+                        )}
+
+                        <label className="su-agree" style={{ "--i": 5 }}>
                           <input
                             type="checkbox"
                             checked={agree}
                             onChange={(e) => setAgree(e.target.checked)}
-                            required
                           />
-                          <span className="agree-box">
-                            <UiIcon name="check" size={13} />
+                          <span className="su-box">
+                            <Icon name="check" size={13} strokeWidth={3} />
                           </span>
-                          <span>
+                          <span className="su-agree-text">
                             I'll keep our memories private and only share them
                             with the gang.
                           </span>
                         </label>
 
-                        {signupError && <FormError>{signupError}</FormError>}
+                        {signupError && <AuthNote>{signupError}</AuthNote>}
 
                         <button
                           type="submit"
                           className="su-submit"
                           disabled={signingUp}
+                          style={{ "--i": 6 }}
                         >
-                          {signingUp ? (
-                            <>
-                              <span className="btn-spinner" /> Creating
-                              account...
-                            </>
-                          ) : (
-                            "Create Account"
-                          )}
+                          {signingUp && <span className="su-spinner" />}
+                          <span>
+                            {signingUp
+                              ? "Creating account..."
+                              : "Create Account"}
+                          </span>
+                          {!signingUp && <Icon name="arrow-right" size={18} />}
                         </button>
                       </form>
 
@@ -3419,7 +5434,7 @@ function App() {
                                 type="button"
                                 onClick={() => handleViewMemory(memory)}
                               >
-                                <IconView /> View
+                                <Icon name="eye" size={16} /> View
                               </button>
                             )}
                             {memory.signed_url && (
@@ -3427,10 +5442,9 @@ function App() {
                                 type="button"
                                 onClick={() => handleDownloadMemory(memory)}
                               >
-                                <IconDownload /> Download
+                                <Icon name="download" size={16} /> Download
                               </button>
                             )}
-                            {/* Admin: any memory. Members: only their own. */}
                             {canDeleteMemory(memory) && (
                               <button
                                 type="button"
@@ -3440,7 +5454,7 @@ function App() {
                                   handleDeleteMemory(memory.id);
                                 }}
                               >
-                                <IconTrash /> Delete
+                                <Icon name="trash" size={16} /> Delete
                               </button>
                             )}
                           </div>
@@ -3464,6 +5478,11 @@ function App() {
                         ))}
                       <h3>{memory.title}</h3>
                       <p>{memory.description}</p>
+                      {memory.author_name && (
+                        <span className="memory-by">
+                          <Icon name="user" size={13} /> By {memory.author_name}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
